@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Simple Notion-style glyph: an "N" in a rounded square outline. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M6,3h12c1.66,0 3,1.34 3,3v12c0,1.66 -1.34,3 -3,3H6c-1.66,0 -3,-1.34 -3,-3V6C3,4.34 4.34,3 6,3zM6,4.8c-0.66,0 -1.2,0.54 -1.2,1.2v12c0,0.66 0.54,1.2 1.2,1.2h12c0.66,0 1.2,-0.54 1.2,-1.2V6c0,-0.66 -0.54,-1.2 -1.2,-1.2H6z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M8.2,17V7h1.9l4.6,7V7h1.8v10h-1.9L10,10.1V17H8.2z" />
+</vector>
