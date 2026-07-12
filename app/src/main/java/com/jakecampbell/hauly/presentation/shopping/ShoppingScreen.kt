@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -477,7 +478,24 @@ private fun StoreFilterRow(
         selectedLabelColor = MaterialTheme.colorScheme.primary,
     )
     val localOptions = remember(options) { options.toMutableStateList() }
-    val lazyListState = rememberLazyListState()
+    // Deliberately non-saveable: unlike the item list, this row must always
+    // open scrolled to the leftmost chip, never restore a prior scroll offset
+    // when the Shopping tab is revisited (saveState/restoreState on the
+    // bottom-nav graph would otherwise preserve it).
+    val lazyListState = remember { LazyListState() }
+
+    // While options is still empty (before storeOptions() first emits), "All"
+    // is the row's only item, at index 0. LazyListState anchors scroll by key,
+    // so once real stores arrive and "All" shifts to the last slot, Compose
+    // keeps that key in view — pushing the row to the end. Force it back to
+    // the start the one time the list populates from empty.
+    var hasScrolledToInitialStores by remember { mutableStateOf(false) }
+    LaunchedEffect(options) {
+        if (options.isNotEmpty() && !hasScrolledToInitialStores) {
+            lazyListState.scrollToItem(0)
+            hasScrolledToInitialStores = true
+        }
+    }
     val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
         // "All" lives outside localOptions, so it can never be a drag target.
         if (to.index in localOptions.indices && from.index in localOptions.indices) {

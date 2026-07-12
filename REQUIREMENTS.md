@@ -178,6 +178,8 @@ requirement below reproduces the app's behavior exactly.
 - **R6.4** The Settings tab shows both database IDs, the last-synced time, and a "Sync now"
   button (with a snackbar confirming the sync is scheduled). Changing token/databases is done
   by clearing app data and re-onboarding — no in-app editing required.
+- **R6.5** The Settings tab shows the app's semantic version (e.g. "Version 1.0.0"), read
+  from the build's `versionName` via `BuildConfig` — not a separately maintained value.
 
 ---
 
@@ -197,7 +199,9 @@ requirement below reproduces the app's behavior exactly.
   screen, the **leftmost store is selected by default** (i.e. the first store in the manual
   order) rather than "All"; the default never overrides a choice the user has already made in
   that session. The store a check-off happens in updates that store's last-shopped timestamp
-  (still tracked, though it no longer drives chip order).
+  (still tracked, though it no longer drives chip order). The chip row's horizontal scroll
+  position is never restored across navigation (e.g. switching bottom-nav tabs and back) —
+  it always opens scrolled to show the leftmost chip.
 - **R7.3** Each item row shows the name and the needed amount as **"Need: X"**, where X
   defaults to **1** when quantity is empty. Whole-number quantities render without decimals
   ("2", not "2.0"). Rows also expose a store-assignment affordance (chip-based picker dialog

@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jakecampbell.hauly.BuildConfig
 import com.jakecampbell.hauly.presentation.common.OfflineBanner
 
 @Composable
@@ -61,6 +62,12 @@ fun SettingsScreen(
         Text(
             "To change the token or databases, clear the app's data and run setup again.",
             style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        Text(
+            "Version ${BuildConfig.VERSION_NAME}",
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
