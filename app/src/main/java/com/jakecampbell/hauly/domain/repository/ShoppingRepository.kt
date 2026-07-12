@@ -23,13 +23,16 @@ interface ShoppingRepository {
 
     /**
      * Store names known from the Notion schema plus any values seen on items,
-     * ordered by most active (unshopped) items first, then by how recently an
-     * item was shopped at that store.
+     * ordered by the user's manually chosen chip order (local-only). A store
+     * not yet manually placed is appended at the end.
      */
     fun storeOptions(): Flow<List<String>>
 
     /** Persist a drag-reorder of the visible list. Local-only; cleared per item on shop. */
     suspend fun setManualOrder(orderedLocalIds: List<String>)
+
+    /** Persist a drag-reorder of the store filter chips. Local-only. */
+    suspend fun setStoreOrder(order: List<String>)
 
     /** Tag names known from the Notion schema. */
     fun tagOptions(): Flow<List<String>>

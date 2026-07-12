@@ -80,8 +80,8 @@ requirement below reproduces the app's behavior exactly.
 - **R3.5** Repository interfaces live in `domain`; implementations in `data`. Multi-step
   business rules (add item, add ingredient) are use-case classes.
 - **R3.6** Settings (integration token, both database IDs, configured flag, cached
-  store/tag select options, last-sync timestamp, per-store last-shopped map) are stored in
-  DataStore Preferences.
+  store/tag select options, last-sync timestamp, per-store last-shopped map, manual store
+  chip order) are stored in DataStore Preferences.
 
 ---
 
@@ -186,15 +186,18 @@ requirement below reproduces the app's behavior exactly.
 ### 7.1 Main list
 
 - **R7.1** Screen title: **"Get your haul! :)"**.
-- **R7.2** A row of store filter chips above the list. Chips are ordered by usefulness:
-  most active (unshopped) items first, ties broken by most recently shopped-at store, then
-  alphabetically; the **"All" chip always sits at the end**. Selecting a store filters items
-  to those whose store list contains it (case-insensitive). "All" shows everything, including
-  store-less items. The selected chip's label (including "All") renders in the primary blue.
-  On opening the screen, the **leftmost store is selected by default** (i.e. the most relevant
-  list per the chip ordering) rather than "All"; the default never overrides a choice the
-  user has already made in that session. The store a check-off happens in updates that
-  store's last-shopped timestamp.
+- **R7.2** A row of store filter chips above the list. Chips are in a **manually chosen order**:
+  long-pressing a chip drags it to a new position (a plain tap still selects it); the order is
+  **local-only** (stored in DataStore Preferences, never synced to Notion) and persists across
+  restarts. A store not yet manually placed (new from the Notion schema, or first seen on an
+  item) is appended at the end of the manually ordered stores. The **"All" chip always sits at
+  the end** of the whole row and is never draggable. Selecting a store filters items to those
+  whose store list contains it (case-insensitive). "All" shows everything, including store-less
+  items. The selected chip's label (including "All") renders in the primary blue. On opening the
+  screen, the **leftmost store is selected by default** (i.e. the first store in the manual
+  order) rather than "All"; the default never overrides a choice the user has already made in
+  that session. The store a check-off happens in updates that store's last-shopped timestamp
+  (still tracked, though it no longer drives chip order).
 - **R7.3** Each item row shows the name and the needed amount as **"Need: X"**, where X
   defaults to **1** when quantity is empty. Whole-number quantities render without decimals
   ("2", not "2.0"). Rows also expose a store-assignment affordance (chip-based picker dialog

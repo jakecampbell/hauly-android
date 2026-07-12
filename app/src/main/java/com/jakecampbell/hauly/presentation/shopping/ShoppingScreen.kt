@@ -53,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -110,6 +111,7 @@ fun ShoppingScreen(
                 options = state.storeOptions,
                 selected = state.selectedStore,
                 onSelect = viewModel::selectStore,
+                onOrderPersist = viewModel::persistStoreOrder,
             )
 
             PullToRefreshBox(
@@ -459,30 +461,52 @@ private fun ReorderableCollectionItemScope.DragHandle(onDragStopped: () -> Unit)
     )
 }
 
+/**
+ * Store chips in the user's manually chosen order (long-press a chip to drag
+ * it; a plain tap still selects it). "All" is fixed at the end, never draggable.
+ */
 @Composable
 private fun StoreFilterRow(
     options: List<String>,
     selected: String?,
     onSelect: (String?) -> Unit,
+    onOrderPersist: (List<String>) -> Unit,
 ) {
     // The selected store's label renders in the primary blue.
     val chipColors = FilterChipDefaults.filterChipColors(
         selectedLabelColor = MaterialTheme.colorScheme.primary,
     )
+    val localOptions = remember(options) { options.toMutableStateList() }
+    val lazyListState = rememberLazyListState()
+    val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
+        // "All" lives outside localOptions, so it can never be a drag target.
+        if (to.index in localOptions.indices && from.index in localOptions.indices) {
+            localOptions.apply { add(to.index, removeAt(from.index)) }
+        }
+    }
+
     LazyRow(
+        state = lazyListState,
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(options) { store ->
-            FilterChip(
-                selected = selected == store,
-                onClick = { onSelect(if (selected == store) null else store) },
-                label = { Text(store) },
-                colors = chipColors,
-            )
+        items(localOptions, key = { it }) { store ->
+            ReorderableItem(reorderableState, key = store) { isDragging ->
+                FilterChip(
+                    selected = selected == store,
+                    onClick = { onSelect(if (selected == store) null else store) },
+                    label = { Text(store) },
+                    colors = chipColors,
+                    modifier = Modifier
+                        .alpha(if (isDragging) 0.7f else 1f)
+                        .longPressDraggableHandle(
+                            onDragStopped = { onOrderPersist(localOptions.toList()) },
+                        ),
+                )
+            }
         }
         // "All" always sits at the end of the store list.
-        item {
+        item(key = "all") {
             FilterChip(
                 selected = selected == null,
                 onClick = { onSelect(null) },

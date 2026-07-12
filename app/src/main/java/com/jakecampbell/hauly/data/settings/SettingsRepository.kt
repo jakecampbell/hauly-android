@@ -33,6 +33,9 @@ class SettingsRepository @Inject constructor(
 
         /** JSON map of store name -> epoch millis an item was last shopped there. */
         val STORE_LAST_SHOPPED = stringPreferencesKey("store_last_shopped")
+
+        /** JSON list of store names in the user's manually chosen chip order. */
+        val STORE_MANUAL_ORDER = stringPreferencesKey("store_manual_order")
     }
 
     val isConfigured: Flow<Boolean> = dataStore.data.map { it[Keys.CONFIGURED] ?: false }
@@ -61,6 +64,17 @@ class SettingsRepository @Inject constructor(
             prefs[Keys.STORE_LAST_SHOPPED] =
                 Json.encodeToString(current + stores.associateWith { timestampMillis })
         }
+    }
+
+    /** The user's drag-reordered store chip order. Empty until they reorder once. */
+    val storeManualOrder: Flow<List<String>> = dataStore.data.map { prefs ->
+        prefs[Keys.STORE_MANUAL_ORDER]?.let { raw ->
+            runCatching { Json.decodeFromString<List<String>>(raw) }.getOrNull()
+        } ?: emptyList()
+    }
+
+    suspend fun setStoreManualOrder(order: List<String>) {
+        dataStore.edit { it[Keys.STORE_MANUAL_ORDER] = Json.encodeToString(order) }
     }
 
     suspend fun token(): String? = dataStore.data.first()[Keys.TOKEN]

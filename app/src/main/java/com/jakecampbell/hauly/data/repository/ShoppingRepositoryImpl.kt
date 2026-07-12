@@ -41,20 +41,20 @@ class ShoppingRepositoryImpl @Inject constructor(
         combine(
             settings.storeOptions,
             dao.activeItems(),
-            settings.storeLastShoppedAt,
-        ) { schema, items, lastShopped ->
-            val activeCounts = items.flatMap { it.stores }.groupingBy { it }.eachCount()
-            (schema + items.flatMap { it.stores })
-                .distinctBy { it.lowercase() }
-                .sortedWith(
-                    compareByDescending<String> { activeCounts[it] ?: 0 }
-                        .thenByDescending { lastShopped[it] ?: 0L }
-                        .thenBy { it.lowercase() }
-                )
+            settings.storeManualOrder,
+        ) { schema, items, manualOrder ->
+            val known = (schema + items.flatMap { it.stores }).distinctBy { it.lowercase() }
+            val placed = manualOrder.filter { placed -> known.any { it.equals(placed, ignoreCase = true) } }
+            val unplaced = known.filter { store -> placed.none { it.equals(store, ignoreCase = true) } }
+            placed + unplaced
         }
 
     override suspend fun setManualOrder(orderedLocalIds: List<String>) {
         dao.setManualOrder(orderedLocalIds)
+    }
+
+    override suspend fun setStoreOrder(order: List<String>) {
+        settings.setStoreManualOrder(order)
     }
 
     override fun tagOptions(): Flow<List<String>> = settings.tagOptions

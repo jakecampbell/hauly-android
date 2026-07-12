@@ -105,9 +105,8 @@ class ShoppingViewModel @Inject constructor(
     val messages: SharedFlow<String> = _messages.asSharedFlow()
 
     init {
-        // Default store view: the most relevant list — the leftmost chip
-        // (stores are ordered most-active, then most recently shopped).
-        // Only until the user picks one themselves.
+        // Default store view: the leftmost chip in the user's manual store
+        // order. Only until the user picks one themselves.
         viewModelScope.launch {
             val stores = repository.storeOptions().first { it.isNotEmpty() }
             if (!storeChosen) selectedStore.value = stores.first()
@@ -186,6 +185,11 @@ class ShoppingViewModel @Inject constructor(
     /** Persist a drag-reorder of the currently displayed rows. */
     fun persistOrder(orderedLocalIds: List<String>) {
         viewModelScope.launch { repository.setManualOrder(orderedLocalIds) }
+    }
+
+    /** Persist a drag-reorder of the store filter chips. */
+    fun persistStoreOrder(order: List<String>) {
+        viewModelScope.launch { repository.setStoreOrder(order) }
     }
 
     fun assignStores(item: ShoppingItem, stores: List<String>) {
