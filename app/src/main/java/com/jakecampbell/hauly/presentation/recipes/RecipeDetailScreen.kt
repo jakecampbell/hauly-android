@@ -1,16 +1,20 @@
 package com.jakecampbell.hauly.presentation.recipes
 
+import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -22,8 +26,11 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.EventAvailable
 import androidx.compose.material.icons.filled.EventBusy
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,6 +39,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -48,6 +56,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -55,6 +64,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jakecampbell.hauly.R
 import com.jakecampbell.hauly.domain.model.BlockType
 import com.jakecampbell.hauly.domain.model.RecipeBlock
+import com.jakecampbell.hauly.domain.model.RecipeSection
 import com.jakecampbell.hauly.domain.model.ShoppingItem
 import com.jakecampbell.hauly.domain.repository.RecipeRepository
 import com.jakecampbell.hauly.presentation.common.longPressIris
@@ -63,9 +73,11 @@ import com.jakecampbell.hauly.presentation.shopping.EditItemDialog
 import com.jakecampbell.hauly.presentation.shopping.formatQuantity
 
 /**
- * Recipe view for cooking: tappable ingredients (shop/un-shop) with their
- * quantities, an add-ingredient flow sharing the shopping list's type-ahead
- * dialog, and the page's instruction blocks.
+ * Recipe view/edit. Four content sections: the Shopping list (the linked
+ * ingredient items you can check off), an editable Ingredients text list drawn
+ * like ruled paper, editable Instructions, and — when the Notion page still has
+ * legacy body content — a read-only "Additional" section. Tapping any
+ * ingredient/instruction line strikes it through (local-only focus tracking).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -77,9 +89,19 @@ fun RecipeDetailScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val addState by viewModel.addState.collectAsStateWithLifecycle()
     var editItem by remember { mutableStateOf<ShoppingItem?>(null) }
+    // Which text section is being edited, and the working text for it.
+    var editingSection by remember { mutableStateOf<RecipeSection?>(null) }
+    var editText by remember { mutableStateOf("") }
+    var showRename by remember { mutableStateOf(false) }
+    var showUrlDialog by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.messages.collect { snackbarHostState.showSnackbar(it) }
+    }
+    LaunchedEffect(Unit) {
+        // A successful delete pops us back to the recipe list.
+        viewModel.closed.collect { onBack() }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -99,6 +121,12 @@ fun RecipeDetailScreen(
             )
             if (state.isLoadingBlocks) {
                 CircularProgressIndicator(modifier = Modifier.width(20.dp).height(20.dp), strokeWidth = 2.dp)
+            }
+            IconButton(
+                enabled = state.recipe != null,
+                onClick = { showRename = true },
+            ) {
+                Icon(Icons.Default.Edit, contentDescription = "Rename recipe")
             }
             val context = LocalContext.current
             val recipeId = state.recipe?.id
@@ -147,10 +175,19 @@ fun RecipeDetailScreen(
                     }
                 }
 
-                // --- Ingredients ---
+                // --- Source link (clickable web link, editable) ---
+                item {
+                    RecipeLinkRow(
+                        url = state.recipe?.url.orEmpty(),
+                        enabled = state.recipe != null,
+                        onEdit = { showUrlDialog = true },
+                    )
+                }
+
+                // --- Shopping list (linked ingredient items) ---
                 item {
                     Text(
-                        "Ingredients",
+                        "Shopping",
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
                     )
@@ -165,7 +202,7 @@ fun RecipeDetailScreen(
                     }
                 }
                 items(state.ingredients, key = { it.localId }) { ingredient ->
-                    IngredientRow(
+                    ShoppingItemRow(
                         ingredient = ingredient,
                         onToggleShopped = { viewModel.toggleShopped(ingredient) },
                         onLongPress = { editItem = ingredient },
@@ -181,37 +218,116 @@ fun RecipeDetailScreen(
                             contentDescription = null,
                             modifier = Modifier.padding(end = 8.dp),
                         )
-                        Text("Add ingredient")
+                        Text("add item")
                     }
                 }
 
-                // --- Instructions ---
+                // --- Ingredients (ruled-paper text list) ---
                 item {
-                    Text(
-                        "Instructions",
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
-                    )
+                    Column {
+                        SectionEditHeader(
+                            title = "Ingredients",
+                            enabled = state.recipe != null,
+                            onEdit = {
+                                editText = state.recipe?.ingredients.orEmpty()
+                                editingSection = RecipeSection.INGREDIENTS
+                            },
+                        )
+                        if (editingSection == RecipeSection.INGREDIENTS) {
+                            SectionEditor(
+                                value = editText,
+                                onValueChange = { editText = it },
+                                onSave = {
+                                    viewModel.saveIngredients(editText)
+                                    editingSection = null
+                                },
+                                onCancel = { editingSection = null },
+                            )
+                        } else {
+                            TextLines(
+                                text = state.recipe?.ingredients.orEmpty(),
+                                struck = state.struckLines[RecipeSection.INGREDIENTS].orEmpty(),
+                                ruled = true,
+                                emptyHint = "No ingredients yet — tap the pencil to add.",
+                                onToggle = { viewModel.toggleLine(RecipeSection.INGREDIENTS, it) },
+                            )
+                        }
+                    }
                 }
-                when {
-                    state.loadError != null && state.blocks.isEmpty() -> item {
+
+                // --- Instructions (editable text) ---
+                item {
+                    Column {
+                        SectionEditHeader(
+                            title = "Instructions",
+                            enabled = state.recipe != null,
+                            onEdit = {
+                                editText = state.recipe?.instructions.orEmpty()
+                                editingSection = RecipeSection.INSTRUCTIONS
+                            },
+                        )
+                        if (editingSection == RecipeSection.INSTRUCTIONS) {
+                            SectionEditor(
+                                value = editText,
+                                onValueChange = { editText = it },
+                                onSave = {
+                                    viewModel.saveInstructions(editText)
+                                    editingSection = null
+                                },
+                                onCancel = { editingSection = null },
+                            )
+                        } else {
+                            TextLines(
+                                text = state.recipe?.instructions.orEmpty(),
+                                struck = state.struckLines[RecipeSection.INSTRUCTIONS].orEmpty(),
+                                ruled = false,
+                                emptyHint = "No instructions yet — tap the pencil to add.",
+                                onToggle = { viewModel.toggleLine(RecipeSection.INSTRUCTIONS, it) },
+                            )
+                        }
+                    }
+                }
+
+                // --- Additional (legacy Notion page body, read-only) ---
+                if (state.blocks.isNotEmpty()) {
+                    item {
                         Text(
-                            state.loadError!!,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            "Additional",
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(top = 16.dp, bottom = 4.dp),
                         )
                     }
-
-                    state.blocks.isEmpty() && !state.isLoadingBlocks -> item {
-                        Text(
-                            "This recipe's Notion page has no content yet.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-
-                    else -> items(state.blocks, key = { it.id }) { block ->
+                    items(state.blocks, key = { it.id }) { block ->
                         BlockView(block)
+                    }
+                }
+
+                // --- Delete recipe (online-first; two taps to confirm) ---
+                item {
+                    Column {
+                    Spacer(Modifier.height(24.dp))
+                    TextButton(
+                        enabled = state.recipe != null,
+                        onClick = {
+                            if (confirmDelete) {
+                                viewModel.deleteRecipe()
+                                confirmDelete = false
+                            } else {
+                                confirmDelete = true
+                            }
+                        },
+                    ) {
+                        Icon(
+                            Icons.Default.DeleteOutline,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(end = 8.dp),
+                        )
+                        Text(
+                            text = if (confirmDelete) "Really delete this recipe?" else "Delete recipe",
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                     }
                 }
             }
@@ -227,6 +343,28 @@ fun RecipeDetailScreen(
             onSelectSuggestion = viewModel::selectSuggestion,
             onDismiss = viewModel::dismissAddDialog,
             onConfirm = viewModel::confirmAdd,
+        )
+    }
+
+    if (showRename) {
+        RecipeRenameDialog(
+            currentName = state.recipe?.name.orEmpty(),
+            onDismiss = { showRename = false },
+            onConfirm = {
+                viewModel.rename(it)
+                showRename = false
+            },
+        )
+    }
+
+    if (showUrlDialog) {
+        RecipeUrlDialog(
+            currentUrl = state.recipe?.url.orEmpty(),
+            onDismiss = { showUrlDialog = false },
+            onConfirm = {
+                viewModel.saveUrl(it)
+                showUrlDialog = false
+            },
         )
     }
 
@@ -248,12 +386,165 @@ fun RecipeDetailScreen(
 }
 
 /**
- * Qty · name · shopped state; tapping anywhere toggles shopped/un-shopped,
- * long-pressing opens the shared edit dialog.
+ * The recipe's source link: a clickable web link that opens in the browser,
+ * with a pencil to edit it. When unset, shows a subtle "Add a link" affordance.
+ */
+@Composable
+private fun RecipeLinkRow(url: String, enabled: Boolean, onEdit: () -> Unit) {
+    val context = LocalContext.current
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Default.Link,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(end = 8.dp),
+        )
+        if (url.isBlank()) {
+            Text(
+                text = "Add a link",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(enabled = enabled) { onEdit() }
+                    .padding(vertical = 8.dp),
+            )
+        } else {
+            Text(
+                text = url,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.primary,
+                textDecoration = TextDecoration.Underline,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { openUrl(context, url) }
+                    .padding(vertical = 8.dp),
+            )
+            IconButton(enabled = enabled, onClick = onEdit) {
+                Icon(
+                    Icons.Default.Edit,
+                    contentDescription = "Edit link",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/** Open a recipe link in the browser, defaulting to https when no scheme is given. */
+private fun openUrl(context: Context, raw: String) {
+    val url = raw.trim()
+    val normalized = if (url.startsWith("http://") || url.startsWith("https://")) url else "https://$url"
+    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, normalized.toUri())) }
+}
+
+/** Section title with a trailing edit (pencil) affordance. */
+@Composable
+private fun SectionEditHeader(title: String, enabled: Boolean, onEdit: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(enabled = enabled, onClick = onEdit) {
+            Icon(
+                Icons.Default.Edit,
+                contentDescription = "Edit $title",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** Multi-line editor for a text section (one ingredient/step per line). */
+@Composable
+private fun SectionEditor(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = { Text("One per line") },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+        ) {
+            TextButton(onClick = onCancel) { Text("Cancel") }
+            Spacer(Modifier.width(8.dp))
+            TextButton(onClick = onSave) { Text("Save") }
+        }
+    }
+}
+
+/**
+ * Render a newline-separated text section as tappable lines. Each non-blank
+ * line can be struck through (crossed out and dimmed) to track progress; when
+ * [ruled] each line gets a divider beneath it, like ruled paper. Line indices
+ * are relative to the raw split so strikes stay stable across blank lines.
+ */
+@Composable
+private fun TextLines(
+    text: String,
+    struck: Set<Int>,
+    ruled: Boolean,
+    emptyHint: String,
+    onToggle: (Int) -> Unit,
+) {
+    val lines = text.split("\n")
+    if (lines.none { it.isNotBlank() }) {
+        Text(
+            text = emptyHint,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(vertical = 4.dp),
+        )
+        return
+    }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        lines.forEachIndexed { index, line ->
+            if (line.isBlank()) return@forEachIndexed
+            val isStruck = index in struck
+            Text(
+                text = line,
+                style = MaterialTheme.typography.bodyLarge,
+                textDecoration = if (isStruck) TextDecoration.LineThrough else null,
+                color = if (isStruck) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                else MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onToggle(index) }
+                    .padding(vertical = 10.dp),
+            )
+            if (ruled) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            }
+        }
+    }
+}
+
+/**
+ * A linked shopping item on the recipe: qty · name · shopped state. Tapping
+ * anywhere toggles shopped/un-shopped, long-pressing opens the shared edit
+ * dialog.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun IngredientRow(
+private fun ShoppingItemRow(
     ingredient: ShoppingItem,
     onToggleShopped: () -> Unit,
     onLongPress: () -> Unit,

@@ -51,7 +51,15 @@ fun RemoteItem.toDomain(): ShoppingItem =
     )
 
 fun RecipeEntity.toDomain(): Recipe =
-    Recipe(id = id, name = name, planned = planned, lastEditedAt = lastEditedAt)
+    Recipe(
+        id = id,
+        name = name,
+        ingredients = ingredients,
+        instructions = instructions,
+        url = url,
+        planned = planned,
+        lastEditedAt = lastEditedAt,
+    )
 
 fun RecipeBlockEntity.toDomain(ordinal: Int): RecipeBlock =
     RecipeBlock(

@@ -10,8 +10,9 @@ import androidx.room.TypeConverters
         RecipeEntity::class,
         RecipeBlockEntity::class,
         RecipeItemCrossRef::class,
+        RecipeLineMarkEntity::class,
     ],
-    version = 5,
+    version = 7,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)

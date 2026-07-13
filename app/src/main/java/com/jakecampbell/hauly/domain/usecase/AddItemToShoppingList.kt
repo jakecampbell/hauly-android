@@ -17,7 +17,7 @@ class AddItemToShoppingList @Inject constructor(
         quantity: Double? = null,
         store: String? = null,
     ): AddItemResult {
-        val trimmed = name.trim()
+        val trimmed = name.trim().lowercase()
         require(trimmed.isNotEmpty()) { "Item name must not be blank" }
         return repository.addItem(trimmed, quantity, store)
     }

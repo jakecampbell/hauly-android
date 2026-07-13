@@ -8,6 +8,7 @@ import com.jakecampbell.hauly.domain.model.AddItemResult
 import com.jakecampbell.hauly.domain.model.EditItemResult
 import com.jakecampbell.hauly.domain.model.Recipe
 import com.jakecampbell.hauly.domain.model.RecipeBlock
+import com.jakecampbell.hauly.domain.model.RecipeSection
 import com.jakecampbell.hauly.domain.model.ShoppingItem
 import com.jakecampbell.hauly.domain.repository.RecipeRepository
 import com.jakecampbell.hauly.domain.repository.ShoppingRepository
@@ -31,6 +32,8 @@ data class RecipeDetailUiState(
     val recipe: Recipe? = null,
     val blocks: List<RecipeBlock> = emptyList(),
     val ingredients: List<ShoppingItem> = emptyList(),
+    /** Struck (crossed-out) line indices per editable text section — local-only. */
+    val struckLines: Map<RecipeSection, Set<Int>> = emptyMap(),
     /** Known store names, for the long-press edit dialog's chips. */
     val storeOptions: List<String> = emptyList(),
     val isRefreshing: Boolean = false,
@@ -60,17 +63,28 @@ class RecipeDetailViewModel @Inject constructor(
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val messages: SharedFlow<String> = _messages.asSharedFlow()
 
+    /** Emitted after a successful delete so the screen can navigate back. */
+    private val _closed = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val closed: SharedFlow<Unit> = _closed.asSharedFlow()
+
+    private val extras = combine(
+        connectivityObserver.isOnline,
+        shoppingRepository.storeOptions(),
+        transient,
+    ) { online, storeOptions, transientState -> Triple(online, storeOptions, transientState) }
+
     val uiState: StateFlow<RecipeDetailUiState> = combine(
         repository.recipe(recipeId),
         repository.blocks(recipeId),
         repository.ingredients(recipeId),
-        combine(connectivityObserver.isOnline, shoppingRepository.storeOptions(), ::Pair),
-        transient,
-    ) { recipe, blocks, ingredients, (online, storeOptions), transientState ->
+        repository.struckLines(recipeId),
+        extras,
+    ) { recipe, blocks, ingredients, struck, (online, storeOptions, transientState) ->
         transientState.copy(
             recipe = recipe,
             blocks = blocks,
             ingredients = ingredients,
+            struckLines = struck,
             storeOptions = storeOptions,
             isOnline = online,
         )
@@ -114,6 +128,47 @@ class RecipeDetailViewModel @Inject constructor(
                 if (recipe.planned) "Removed \"${recipe.name}\" from planned"
                 else "Planned! \"${recipe.name}\" moved to your make list"
             )
+        }
+    }
+
+    /** Save the edited ingredient text (offline-queued). */
+    fun saveIngredients(text: String) {
+        viewModelScope.launch { repository.saveIngredients(recipeId, text.trim()) }
+    }
+
+    /** Save the edited instruction text (offline-queued). */
+    fun saveInstructions(text: String) {
+        viewModelScope.launch { repository.saveInstructions(recipeId, text.trim()) }
+    }
+
+    /** Save the recipe's source link (offline-queued). Blank clears it. */
+    fun saveUrl(url: String) {
+        viewModelScope.launch { repository.saveUrl(recipeId, url.trim()) }
+    }
+
+    /** Rename the recipe (offline-queued). Blank names are ignored. */
+    fun rename(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        viewModelScope.launch { repository.renameRecipe(recipeId, trimmed) }
+    }
+
+    /** Tap a text line: toggle its local-only "done" strike. */
+    fun toggleLine(section: RecipeSection, lineIndex: Int) {
+        viewModelScope.launch { repository.toggleLineMark(recipeId, section, lineIndex) }
+    }
+
+    /** Delete the whole recipe (online-first). Navigates back on success. */
+    fun deleteRecipe() {
+        val recipe = uiState.value.recipe ?: return
+        if (!uiState.value.isOnline) {
+            viewModelScope.launch { _messages.emit("Deleting a recipe needs an internet connection.") }
+            return
+        }
+        viewModelScope.launch {
+            repository.deleteRecipe(recipe.id)
+                .onSuccess { _closed.emit(Unit) }
+                .onFailure { _messages.emit("Couldn't delete this recipe.") }
         }
     }
 

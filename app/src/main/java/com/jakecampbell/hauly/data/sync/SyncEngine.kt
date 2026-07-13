@@ -87,13 +87,24 @@ class SyncEngine @Inject constructor(
         return FlushOutcome.SUCCESS
     }
 
-    /** Push queued Planned-checkbox toggles to the recipe database. */
+    /**
+     * Push queued recipe edits (name / ingredients / instructions / Planned) to
+     * the recipe database. Whole-recipe create and delete are online-first, so
+     * the queue only ever holds PENDING_UPDATE rows.
+     */
     private suspend fun flushRecipeQueue(): FlushOutcome {
         for (queued in recipeDao.pendingRecipes()) {
             val recipe = recipeDao.byId(queued.id) ?: continue
             if (recipe.syncStatus != SyncStatus.PENDING_UPDATE) continue
             try {
-                remote.setRecipePlanned(recipe.id, recipe.planned)
+                remote.updateRecipe(
+                    pageId = recipe.id,
+                    name = recipe.name,
+                    ingredients = recipe.ingredients,
+                    instructions = recipe.instructions,
+                    url = recipe.url,
+                    planned = recipe.planned,
+                )
                 // Guarded: a toggle made while the push was in flight stays
                 // PENDING_UPDATE and is flushed by the appended sync run.
                 recipeDao.upsertIfUnchanged(
@@ -258,6 +269,9 @@ class SyncEngine @Inject constructor(
                 RecipeEntity(
                     id = it.pageId,
                     name = it.name,
+                    ingredients = it.ingredients,
+                    instructions = it.instructions,
+                    url = it.url,
                     planned = it.planned,
                     lastEditedAt = it.lastEditedAt,
                     updatedAt = now,

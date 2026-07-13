@@ -34,11 +34,14 @@ requirement below reproduces the app's behavior exactly.
 
 ### 2.2 Recipe database (required properties)
 
-| Property      | Notion type | Purpose |
-|---------------|-------------|---------|
-| `Name`        | title       | Recipe name |
-| `Ingredients` | relation    | Links to Shopping List items |
-| `Planned`     | checkbox    | Checked = the user plans to make this recipe |
+| Property       | Notion type | Purpose |
+|----------------|-------------|---------|
+| `Name`         | title       | Recipe name |
+| `Shopping`     | relation    | Links to Shopping List items |
+| `Planned`      | checkbox    | Checked = the user plans to make this recipe |
+| `Ingredients`  | rich_text   | Editable ingredient list text (one item per line) |
+| `Instructions` | rich_text   | Editable instruction text (one step per line) |
+| `URL`          | url         | Editable source link to the recipe |
 
 ### 2.3 API rules
 
@@ -93,14 +96,21 @@ requirement below reproduces the app's behavior exactly.
   `shopped`; `sync_status`; `updated_at` (epoch millis); plus two **local-only** columns that
   bypass sync entirely: `manual_rank` (nullable drag position) and `trip_shopped`
   (current-trip ledger flag).
-- **R4.2** `recipes` table: Notion page id as primary key, `name`, `planned`, `sync_status`,
-  `updated_at`, and `last_edited_at` (Notion's `last_edited_time` as epoch millis, used by the
-  "Recent" sort; locally approximated to "now" when Planned is toggled so the sort reflects it
-  before the next refresh).
+- **R4.2** `recipes` table: Notion page id as primary key, `name`, `ingredients` and
+  `instructions` (newline-separated text from the `Ingredients`/`Instructions` rich_text
+  properties), `url` (the `URL` source link), `planned`, `sync_status`, `updated_at`, and
+  `last_edited_at` (Notion's
+  `last_edited_time` as epoch millis, used by the "Recent" sort; locally approximated to "now"
+  when Planned is toggled or content is edited so the sort reflects it before the next refresh).
 - **R4.3** `recipe_blocks` table: cached page content per recipe (recipe id, order index,
-  block type, text payload), replaced wholesale on each detail fetch.
+  block type, text payload), replaced wholesale on each detail fetch. This is the recipe's
+  legacy Notion page **body** and is shown read-only under an "Additional" heading (R8.4).
 - **R4.4** `recipe_item_refs` cross-ref table linking recipes to shopping items (recipe id +
   item `local_id`).
+- **R4.7** `recipe_line_marks` table: **local-only** per-line "where am I" strikes for a
+  recipe's ingredient/instruction sections (recipe id + section + line index). Never synced to
+  Notion (like `manual_rank` / `trip_shopped`), cascade-deleted with the recipe, and cleared
+  for a section whenever that section's text is edited (line positions shift).
 - **R4.5** The shopping cache holds **active (unshopped) items plus every item linked to a
   recipe** (shopped or not — ingredient lists must always show their items with shopped
   state), fetched with a single `or` filter (Shopped = false ∨ Recipes not empty). Rows
@@ -200,7 +210,7 @@ requirement below reproduces the app's behavior exactly.
   order) rather than "All"; the default never overrides a choice the user has already made in
   that session. The store a check-off happens in updates that store's last-shopped timestamp
   (still tracked, though it no longer drives chip order). The chip row's horizontal scroll
-  position is never restored across navigation (e.g. switching bottom-nav tabs and back) —
+  position is never restored across navigation (e.g. switching tabs — by tap or swipe — and back) —
   it always opens scrolled to show the leftmost chip.
 - **R7.3** Each item row shows the name and the needed amount as **"Need: X"**, where X
   defaults to **1** when quantity is empty. Whole-number quantities render without decimals
@@ -231,7 +241,7 @@ requirement below reproduces the app's behavior exactly.
 ### 7.3 Add-item dialog (type-ahead)
 
 - **R7.9** There is **no search bar** on the shopping screen. A floating **plus** button opens
-  an add dialog titled **"haul...?"**. As soon as the user types, a narrowing list of matching
+  an add dialog titled **"haul"**. As soon as the user types, a narrowing list of matching
   existing items appears, blending: instant substring matches from the local cache, and
   **debounced (~350 ms) remote Notion search** — this is how already-shopped, no-longer-cached
   items are found. Results are deduplicated by name (case-insensitive), sorted, capped at 8.
@@ -319,17 +329,22 @@ requirement below reproduces the app's behavior exactly.
   button (with calendar-style icons) as the first content element, which toggles `Planned`
   (queued to Notion) and **must not touch the ingredients** in any way; an **"Open in
   Notion"** icon button (Notion "N" logo) that opens the recipe page
-  (`https://www.notion.so/{page-id-without-dashes}`) via an external intent; the ingredient
-  list (from the `Ingredients` relation — **always complete**, showing every linked item
-  whether shopped or not, per R4.5); and the recipe's page content. Each ingredient row
-  shows its quantity to the **left** of the name (defaulting to 1 when Qty is empty, same
+  (`https://www.notion.so/{page-id-without-dashes}`) via an external intent; a **rename**
+  (pencil) affordance for the recipe name (R8.9); the **Shopping** list (from the `Shopping`
+  relation — **always complete**, showing every linked item whether shopped or not, per R4.5);
+  the editable **Ingredients** and **Instructions** text sections (R8.7–R8.8); a read-only
+  **Additional** section for legacy page body (R8.4); and a **Delete recipe** action (R8.11).
+  Each Shopping row shows its quantity to the **left** of the name (defaulting to 1 when Qty is empty, same
   formatting as the shopping list); tapping the row toggles the item between shopped and
   un-shopped, with shopped rows crossed out and marked by a check icon (checking off adds the
   item to the shopping screen's trip ledger, exactly like checking it off there). Long-pressing
   an ingredient opens the shared edit dialog (R7.16).
-- **R8.4** Page content is **read-only**, fetched via the paginated block-children endpoint,
-  cached locally, and rendered per block type (paragraphs, headings, bulleted/numbered lists,
-  to-dos, quotes, dividers, etc.); unsupported types degrade gracefully.
+- **R8.4** The recipe's legacy Notion page **body** is **read-only**, fetched via the paginated
+  block-children endpoint, cached locally, and rendered per block type (paragraphs, headings,
+  bulleted/numbered lists, to-dos, quotes, dividers, etc.); unsupported types degrade
+  gracefully. It appears under an **"Additional"** heading **only when the page body has
+  content** — editable recipe content now lives in the `Ingredients`/`Instructions` properties
+  (R8.7), not the body.
 - **R8.5** From a recipe, the user adds ingredients through the **same type-ahead add dialog
   as the shopping list** (R7.9–R7.10: local + remote suggestions, duplicate-name prevention),
   opened by an "Add ingredient" button below the ingredient list. Confirming links the item
@@ -341,12 +356,50 @@ requirement below reproduces the app's behavior exactly.
   and relies on the create-with-merge flush (R5.4) to avoid duplicates. Blank names are
   rejected.
 - **R8.6** Recipe screens include loading and error states like every other screen.
+- **R8.7** **Editable Ingredients & Instructions.** Both are stored as newline-separated text
+  in Notion rich_text properties (§2.2) and edited in place: each section has a pencil that
+  swaps its view for a multi-line text field (one item/step per line) with Save/Cancel. Saving
+  is **offline-safe** — it queues a `PENDING_UPDATE` on the recipe row (same offline queue as
+  the Planned toggle) and the sync worker flushes the full recipe property payload (name,
+  ingredients, instructions, planned). Rich_text is chunked to respect Notion's 2000-char
+  per-object limit. The **Ingredients** view renders like **ruled paper**: each non-blank line
+  is shown with a full-width divider beneath it; an empty section shows a muted placeholder.
+- **R8.8** **Per-line strike (focus) tracking.** In view mode every non-blank Ingredients/
+  Instructions line is tappable; tapping crosses it out and dims it (~60% alpha), tapping again
+  restores it, to help the cook keep their place. This is **local-only** (R4.7) — never synced
+  to Notion, independent of the Shopping list's shopped state, and a section's strikes reset
+  when that section's text is edited.
+- **R8.9** **Rename** (pencil by the title) edits the recipe `Name`; offline-safe like R8.7.
+  Blank names are rejected.
+- **R8.10** **Create recipe.** A "+" button on the Recipes list opens a dialog for name plus
+  optional ingredient/instruction text; confirming is **online-first** (writes to Notion, then
+  caches the row and opens it). Blank names are rejected; when offline the attempt reports that
+  a connection is required.
+- **R8.11** **Delete recipe.** A destructive action on the recipe detail (two taps to confirm,
+  error color) that is **online-first**: it archives the Notion page (recoverable from the
+  Notion trash), removes the local row and its relations, and returns to the list. When offline
+  it reports that a connection is required.
+- **R8.12** **Source link.** The recipe's `URL` property is shown near the top of the detail as
+  a **clickable web link** (opens in the browser via an external intent; a missing scheme
+  defaults to `https://`). It is **editable** (a pencil opens a link dialog; leaving it empty
+  clears it) and settable at create time — both offline-safe/online-first like the rest of the
+  recipe's editable fields (R8.7). When unset, a subtle "Add a link" affordance appears instead.
 
 ---
 
 ## 9. Global UI, Theme & Branding
 
-- **R9.1** Bottom navigation with three destinations: Shopping, Recipes, Settings.
+- **R9.1** Bottom navigation with three destinations: Shopping, Recipes, Settings. The two
+  **list** tabs (Shopping, Recipes) form a **horizontally swipeable pager** — a left/right
+  swipe moves between them, and their bottom-bar items reflect and drive the current page
+  (tapping animates to it). **Settings is not swipeable**: it is a separate route reached only
+  by tapping its bottom-bar item; tapping Shopping/Recipes from Settings returns to the pager on
+  the chosen tab. The bottom bar shows on both the pager and Settings. Each list tab's ViewModel
+  is scoped to the pager's back-stack entry so its data survives swiping; the off-screen page
+  composition is disposed (which is what lets the shopping chip row re-open scrolled to the
+  leftmost chip, R7.2). The recipe detail is a full-screen route pushed over the pager (no
+  bottom bar). A horizontal swipe that begins on a horizontally scrollable child (e.g. the
+  store-chip row) scrolls that child first and only pages once it reaches its edge.
 - **R9.2** A **global network-activity indicator**: a thin (2 dp) indeterminate progress bar
   overlaid at the top of the screen (below the status bar), visible whenever any Notion HTTP
   request is in flight. Driven by an OkHttp interceptor counting active requests, with the

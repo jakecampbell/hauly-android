@@ -12,6 +12,7 @@ import com.jakecampbell.hauly.domain.model.ShoppedHistoryPage
 import com.jakecampbell.hauly.domain.model.ShoppingItem
 import com.jakecampbell.hauly.domain.model.SyncStatus
 import com.jakecampbell.hauly.domain.repository.ShoppingRepository
+import com.jakecampbell.hauly.domain.util.titleCase
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -144,12 +145,13 @@ class ShoppingRepositoryImpl @Inject constructor(
         quantity: Double?,
     ): EditItemResult {
         val item = dao.byLocalId(localId) ?: return EditItemResult.SAVED
+        val normalizedName = name.trim().lowercase()
         // Names are unique (case-insensitive); renaming onto another item
         // would violate the index and silently merge two Notion pages.
-        val clash = dao.byName(name)
+        val clash = dao.byName(normalizedName)
         if (clash != null && clash.localId != item.localId) return EditItemResult.DUPLICATE_NAME
 
-        val updated = item.copy(name = name, stores = stores, quantity = quantity)
+        val updated = item.copy(name = normalizedName, stores = stores.map(::titleCase), quantity = quantity)
         if (updated != item) {
             dao.upsert(updated.copy(syncStatus = pendingFor(item), updatedAt = System.currentTimeMillis()))
             syncScheduler.requestSync()
@@ -161,7 +163,7 @@ class ShoppingRepositoryImpl @Inject constructor(
         val item = dao.byLocalId(localId) ?: return
         dao.upsert(
             item.copy(
-                stores = stores,
+                stores = stores.map(::titleCase),
                 syncStatus = pendingFor(item),
                 updatedAt = System.currentTimeMillis(),
             )
@@ -247,5 +249,5 @@ class ShoppingRepositoryImpl @Inject constructor(
     /** Append the current store view to a store list if it isn't there yet. */
     private fun withStore(stores: List<String>, store: String?): List<String> =
         if (store == null || stores.any { it.equals(store, ignoreCase = true) }) stores
-        else stores + store
+        else stores + titleCase(store)
 }

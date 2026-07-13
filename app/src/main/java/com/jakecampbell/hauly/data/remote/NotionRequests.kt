@@ -1,6 +1,8 @@
 package com.jakecampbell.hauly.data.remote
 
+import com.jakecampbell.hauly.domain.util.titleCase
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonArray
@@ -107,12 +109,12 @@ object NotionRequests {
     ): JsonObject = buildJsonObject {
         putJsonObject(NotionSchema.PROP_NAME) {
             putJsonArray("title") {
-                addJsonObject { putJsonObject("text") { put("content", name) } }
+                addJsonObject { putJsonObject("text") { put("content", name.lowercase()) } }
             }
         }
         putJsonObject(NotionSchema.PROP_STORE) {
             putJsonArray("multi_select") {
-                stores.forEach { addJsonObject { put("name", it) } }
+                stores.forEach { addJsonObject { put("name", titleCase(it)) } }
             }
         }
         putJsonObject(NotionSchema.PROP_TAG) {
@@ -151,10 +153,53 @@ object NotionRequests {
     /** Notion has no hard delete over the API; archiving moves the page to trash. */
     fun archivePageBody(): JsonObject = buildJsonObject { put("archived", true) }
 
-    /** Minimal recipe patch: flips only the Planned checkbox. */
-    fun setPlannedBody(planned: Boolean): JsonObject = buildJsonObject {
-        putJsonObject("properties") {
-            putJsonObject(NotionSchema.PROP_PLANNED) { put("checkbox", planned) }
+    /**
+     * Full property payload for a recipe, shared by create and update. Name,
+     * Ingredients, and Instructions are user-editable; Planned is the "make it"
+     * flag. Ingredient/instruction text is stored in rich_text properties (the
+     * relation-based Shopping list is patched separately, per item).
+     */
+    fun recipeProperties(
+        name: String,
+        ingredients: String,
+        instructions: String,
+        url: String,
+        planned: Boolean,
+    ): JsonObject = buildJsonObject {
+        putJsonObject(NotionSchema.PROP_NAME) {
+            putJsonArray("title") {
+                addJsonObject { putJsonObject("text") { put("content", name) } }
+            }
+        }
+        putRichText(NotionSchema.PROP_INGREDIENTS, ingredients)
+        putRichText(NotionSchema.PROP_INSTRUCTIONS, instructions)
+        // A url property takes a bare string; null clears it.
+        putJsonObject(NotionSchema.PROP_URL) {
+            put("url", url.trim().ifBlank { null })
+        }
+        putJsonObject(NotionSchema.PROP_PLANNED) { put("checkbox", planned) }
+    }
+
+    /** Property patch body for an existing recipe page. */
+    fun recipeUpdateBody(properties: JsonObject): JsonObject = buildJsonObject {
+        put("properties", properties)
+    }
+
+    /** Notion caps a single rich_text object's content at 2000 characters. */
+    private const val RICH_TEXT_LIMIT = 2000
+
+    /**
+     * Emit a rich_text property, splitting long content across multiple text
+     * objects so it can't exceed Notion's per-object limit. Empty text writes an
+     * empty array, which clears the property.
+     */
+    private fun JsonObjectBuilder.putRichText(property: String, text: String) {
+        putJsonObject(property) {
+            putJsonArray("rich_text") {
+                text.chunked(RICH_TEXT_LIMIT).forEach { chunk ->
+                    addJsonObject { putJsonObject("text") { put("content", chunk) } }
+                }
+            }
         }
     }
 }

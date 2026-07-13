@@ -49,6 +49,13 @@ class RecipesViewModel @Inject constructor(
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val messages: SharedFlow<String> = _messages.asSharedFlow()
 
+    /** Emitted with the new recipe id after a successful create, to open it. */
+    private val _created = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val created: SharedFlow<String> = _created.asSharedFlow()
+
+    private val _isCreating = MutableStateFlow(false)
+    val isCreating: StateFlow<Boolean> = _isCreating
+
     val uiState: StateFlow<RecipesUiState> = combine(
         repository.recipes(),
         sort,
@@ -81,6 +88,29 @@ class RecipesViewModel @Inject constructor(
                 _messages.emit("Couldn't refresh recipes from Notion.")
             }
             isRefreshing.value = false
+        }
+    }
+
+    /**
+     * Create a recipe (online-first). Emits the new id via [created] on success
+     * so the caller can open it. Blank names are rejected.
+     */
+    fun createRecipe(name: String, ingredients: String, instructions: String, url: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) {
+            viewModelScope.launch { _messages.emit("Give the recipe a name.") }
+            return
+        }
+        if (!uiState.value.isOnline) {
+            viewModelScope.launch { _messages.emit("Creating a recipe needs an internet connection.") }
+            return
+        }
+        viewModelScope.launch {
+            _isCreating.value = true
+            repository.createRecipe(trimmed, ingredients.trim(), instructions.trim(), url.trim())
+                .onSuccess { _created.emit(it) }
+                .onFailure { _messages.emit("Couldn't create the recipe.") }
+            _isCreating.value = false
         }
     }
 }

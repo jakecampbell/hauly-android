@@ -11,8 +11,11 @@ object NotionSchema {
     const val PROP_QUANTITY = "Qty"
     const val PROP_SHOPPED = "Shopped"
     const val PROP_RECIPES = "Recipes"
-    const val PROP_INGREDIENTS = "Ingredients"
+    const val PROP_SHOPPING = "Shopping"
     const val PROP_PLANNED = "Planned"
+    const val PROP_INGREDIENTS = "Ingredients"
+    const val PROP_INSTRUCTIONS = "Instructions"
+    const val PROP_URL = "URL"
 
     /** property name -> expected Notion type */
     val shoppingListProperties = mapOf(
@@ -26,7 +29,10 @@ object NotionSchema {
 
     val recipeProperties = mapOf(
         PROP_NAME to "title",
-        PROP_INGREDIENTS to "relation",
+        PROP_SHOPPING to "relation",
         PROP_PLANNED to "checkbox",
+        PROP_INGREDIENTS to "rich_text",
+        PROP_INSTRUCTIONS to "rich_text",
+        PROP_URL to "url",
     )
 }

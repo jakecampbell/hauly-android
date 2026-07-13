@@ -96,11 +96,11 @@ class OnboardingRepositoryImpl @Inject constructor(
                 actualType = "relation to a different database",
             )
         }
-        val itemsTarget = NotionMappers.relationTargetDatabase(recipeDb, NotionSchema.PROP_INGREDIENTS)
+        val itemsTarget = NotionMappers.relationTargetDatabase(recipeDb, NotionSchema.PROP_SHOPPING)
         if (itemsTarget != null && !sameNotionId(itemsTarget, shoppingDatabaseId)) {
             problems += SchemaProblem(
                 database = NotionSchema.RECIPE_DB_LABEL,
-                property = NotionSchema.PROP_INGREDIENTS,
+                property = NotionSchema.PROP_SHOPPING,
                 expectedType = "relation to the Shopping List database",
                 actualType = "relation to a different database",
             )

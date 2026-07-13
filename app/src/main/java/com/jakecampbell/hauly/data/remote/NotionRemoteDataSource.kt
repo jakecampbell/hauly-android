@@ -21,6 +21,12 @@ data class RemoteRecipe(
     val name: String,
     val itemPageIds: List<String>,
     val planned: Boolean,
+    /** Ingredient list text (rich_text property), newlines preserved. */
+    val ingredients: String,
+    /** Instruction text (rich_text property), newlines preserved. */
+    val instructions: String,
+    /** Source link (url property); "" when unset. */
+    val url: String,
     /** Notion's `last_edited_time` (epoch millis). */
     val lastEditedAt: Long,
 )
@@ -81,17 +87,7 @@ class NotionRemoteDataSource @Inject constructor(
 
     suspend fun fetchRecipes(databaseId: String): List<RemoteRecipe> =
         queryAllPages(databaseId) { NotionRequests.listQuery(it) }
-            .mapNotNull { page ->
-                val id = NotionMappers.pageId(page) ?: return@mapNotNull null
-                val props = NotionMappers.properties(page) ?: return@mapNotNull null
-                RemoteRecipe(
-                    pageId = id,
-                    name = NotionMappers.titleText(props, NotionSchema.PROP_NAME),
-                    itemPageIds = NotionMappers.relationIds(props, NotionSchema.PROP_INGREDIENTS),
-                    planned = NotionMappers.checkboxValue(props, NotionSchema.PROP_PLANNED),
-                    lastEditedAt = NotionMappers.lastEditedTime(page) ?: 0L,
-                )
-            }
+            .mapNotNull(::toRemoteRecipe)
 
     /**
      * All instruction blocks of a recipe page, following block pagination so
@@ -114,22 +110,45 @@ class NotionRemoteDataSource @Inject constructor(
         return blocks
     }
 
-    /** A single recipe page, for refreshing its ingredient relations. */
-    suspend fun getRecipePage(pageId: String): RemoteRecipe? {
-        val page = api.getPage(pageId)
-        val id = NotionMappers.pageId(page) ?: return null
-        val props = NotionMappers.properties(page) ?: return null
-        return RemoteRecipe(
-            pageId = id,
-            name = NotionMappers.titleText(props, NotionSchema.PROP_NAME),
-            itemPageIds = NotionMappers.relationIds(props, NotionSchema.PROP_INGREDIENTS),
-            planned = NotionMappers.checkboxValue(props, NotionSchema.PROP_PLANNED),
-            lastEditedAt = NotionMappers.lastEditedTime(page) ?: 0L,
+    /** A single recipe page, for refreshing its content and ingredient relations. */
+    suspend fun getRecipePage(pageId: String): RemoteRecipe? =
+        toRemoteRecipe(api.getPage(pageId))
+
+    /** Create a recipe page in the recipe database and return its remote snapshot. */
+    suspend fun createRecipe(
+        databaseId: String,
+        name: String,
+        ingredients: String,
+        instructions: String,
+        url: String,
+    ): RemoteRecipe? {
+        val body = NotionRequests.createPageBody(
+            databaseId,
+            NotionRequests.recipeProperties(name, ingredients, instructions, url, planned = false),
+        )
+        return toRemoteRecipe(api.createPage(body))
+    }
+
+    /** Patch a recipe's editable properties (name, ingredients, instructions, url, planned). */
+    suspend fun updateRecipe(
+        pageId: String,
+        name: String,
+        ingredients: String,
+        instructions: String,
+        url: String,
+        planned: Boolean,
+    ) {
+        api.updatePage(
+            pageId,
+            NotionRequests.recipeUpdateBody(
+                NotionRequests.recipeProperties(name, ingredients, instructions, url, planned),
+            ),
         )
     }
 
-    suspend fun setRecipePlanned(pageId: String, planned: Boolean) {
-        api.updatePage(pageId, NotionRequests.setPlannedBody(planned))
+    /** Archive (soft-delete) a recipe page; it lands in the Notion trash. */
+    suspend fun archiveRecipe(pageId: String) {
+        api.updatePage(pageId, NotionRequests.archivePageBody())
     }
 
     /** Archive (soft-delete) an item's page; it lands in the Notion trash. */
@@ -180,6 +199,21 @@ class NotionRemoteDataSource @Inject constructor(
             cursor = NotionMappers.nextCursor(envelope)
         } while (cursor != null)
         return pages
+    }
+
+    private fun toRemoteRecipe(page: JsonObject): RemoteRecipe? {
+        val id = NotionMappers.pageId(page) ?: return null
+        val props = NotionMappers.properties(page) ?: return null
+        return RemoteRecipe(
+            pageId = id,
+            name = NotionMappers.titleText(props, NotionSchema.PROP_NAME),
+            itemPageIds = NotionMappers.relationIds(props, NotionSchema.PROP_SHOPPING),
+            planned = NotionMappers.checkboxValue(props, NotionSchema.PROP_PLANNED),
+            ingredients = NotionMappers.richTextValue(props, NotionSchema.PROP_INGREDIENTS),
+            instructions = NotionMappers.richTextValue(props, NotionSchema.PROP_INSTRUCTIONS),
+            url = NotionMappers.urlValue(props, NotionSchema.PROP_URL),
+            lastEditedAt = NotionMappers.lastEditedTime(page) ?: 0L,
+        )
     }
 
     private fun toRemoteItem(page: JsonObject): RemoteItem? {

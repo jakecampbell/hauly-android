@@ -1,6 +1,8 @@
 package com.jakecampbell.hauly.data.local
 
 import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Upsert
@@ -72,6 +74,57 @@ interface RecipeDao {
 
     @Query("DELETE FROM recipes")
     suspend fun deleteAll()
+
+    /**
+     * Remove a recipe locally and its relation rows (blocks and line marks
+     * cascade via their foreign keys; the item cross-ref table has no FK to
+     * recipes, so it's cleaned explicitly). Used by the online-first delete.
+     */
+    @Transaction
+    suspend fun deleteRecipe(recipeId: String) {
+        deleteRefsForRecipe(recipeId)
+        deleteById(recipeId)
+    }
+
+    @Query("DELETE FROM recipes WHERE id = :recipeId")
+    suspend fun deleteById(recipeId: String)
+
+    @Query("DELETE FROM recipe_item_refs WHERE recipe_id = :recipeId")
+    suspend fun deleteRefsForRecipe(recipeId: String)
+
+    // --- Line-strike focus tracking (local-only, never synced) ---
+
+    @Query("SELECT * FROM recipe_line_marks WHERE recipe_id = :recipeId")
+    fun lineMarks(recipeId: String): Flow<List<RecipeLineMarkEntity>>
+
+    @Query(
+        "SELECT COUNT(*) FROM recipe_line_marks " +
+            "WHERE recipe_id = :recipeId AND section = :section AND line_index = :lineIndex"
+    )
+    suspend fun markCount(recipeId: String, section: String, lineIndex: Int): Int
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertMark(mark: RecipeLineMarkEntity)
+
+    @Query(
+        "DELETE FROM recipe_line_marks " +
+            "WHERE recipe_id = :recipeId AND section = :section AND line_index = :lineIndex"
+    )
+    suspend fun deleteMark(recipeId: String, section: String, lineIndex: Int)
+
+    /** Toggle a single line's struck state. */
+    @Transaction
+    suspend fun toggleMark(recipeId: String, section: String, lineIndex: Int) {
+        if (markCount(recipeId, section, lineIndex) > 0) {
+            deleteMark(recipeId, section, lineIndex)
+        } else {
+            insertMark(RecipeLineMarkEntity(recipeId, section, lineIndex))
+        }
+    }
+
+    /** Clear a section's strikes — done when that section's text is edited. */
+    @Query("DELETE FROM recipe_line_marks WHERE recipe_id = :recipeId AND section = :section")
+    suspend fun clearMarks(recipeId: String, section: String)
 
     // --- Blocks ---
 

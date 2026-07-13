@@ -17,7 +17,7 @@ class AddIngredientToList @Inject constructor(
         name: String,
         quantity: Double? = null,
     ): AddItemResult {
-        val trimmed = name.trim()
+        val trimmed = name.trim().lowercase()
         require(trimmed.isNotEmpty()) { "Ingredient name must not be blank" }
         return repository.addIngredient(recipeId, trimmed, quantity)
     }

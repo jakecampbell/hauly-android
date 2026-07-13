@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.jakecampbell.hauly.domain.model.ShoppingItem
+import com.jakecampbell.hauly.domain.util.titleCaseWhileTyping
 
 /**
  * Type-ahead add dialog. Typing narrows a suggestion list of existing items
@@ -56,7 +57,7 @@ fun AddItemDialog(
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
                     value = state.query,
-                    onValueChange = onQueryChange,
+                    onValueChange = { onQueryChange(it.lowercase()) },
                     label = { Text("Name") },
                     singleLine = true,
                     trailingIcon = {
@@ -196,7 +197,7 @@ fun EditItemDialog(
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
                     value = name,
-                    onValueChange = { name = it },
+                    onValueChange = { name = it.lowercase() },
                     label = { Text("Name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
@@ -231,7 +232,7 @@ fun EditItemDialog(
                 }
                 OutlinedTextField(
                     value = newStore,
-                    onValueChange = { newStore = it },
+                    onValueChange = { newStore = titleCaseWhileTyping(it) },
                     label = { Text("New store (optional)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
@@ -293,7 +294,7 @@ fun StorePickerDialog(
                 }
                 OutlinedTextField(
                     value = newStore,
-                    onValueChange = { newStore = it },
+                    onValueChange = { newStore = titleCaseWhileTyping(it) },
                     label = { Text("New store (optional)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),

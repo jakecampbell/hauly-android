@@ -33,6 +33,13 @@ object NotionMappers {
     fun titleText(properties: JsonObject, name: String): String =
         richTextToPlain((properties[name] as? JsonObject)?.get("title") as? JsonArray)
 
+    /**
+     * A rich_text *property*'s plain text (distinct from a title). Internal
+     * newlines are preserved; leading/trailing whitespace is trimmed.
+     */
+    fun richTextValue(properties: JsonObject, name: String): String =
+        richTextToPlain((properties[name] as? JsonObject)?.get("rich_text") as? JsonArray)
+
     fun multiSelectValues(properties: JsonObject, name: String): List<String> =
         ((properties[name] as? JsonObject)?.get("multi_select") as? JsonArray)
             ?.mapNotNull { (it.jsonObject["name"] as? JsonPrimitive)?.contentOrNull }
@@ -40,6 +47,10 @@ object NotionMappers {
 
     fun numberValue(properties: JsonObject, name: String): Double? =
         ((properties[name] as? JsonObject)?.get("number") as? JsonPrimitive)?.doubleOrNull
+
+    /** A url-type property's value, or "" when empty/absent. */
+    fun urlValue(properties: JsonObject, name: String): String =
+        ((properties[name] as? JsonObject)?.get("url") as? JsonPrimitive)?.contentOrNull ?: ""
 
     fun checkboxValue(properties: JsonObject, name: String): Boolean =
         ((properties[name] as? JsonObject)?.get("checkbox") as? JsonPrimitive)
