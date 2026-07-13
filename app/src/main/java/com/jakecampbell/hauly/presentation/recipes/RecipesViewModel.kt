@@ -25,16 +25,35 @@ enum class RecipeSort {
     RECENT,
 }
 
+/**
+ * True when [query] (already trimmed, non-empty) is found in any of the recipe's
+ * text properties — name, ingredients, instructions, or source link — case-insensitively.
+ */
+private fun Recipe.matches(query: String): Boolean {
+    return name.contains(query, ignoreCase = true) ||
+        ingredients.contains(query, ignoreCase = true) ||
+        instructions.contains(query, ignoreCase = true) ||
+        url.contains(query, ignoreCase = true)
+}
+
 data class RecipesUiState(
     /** Recipes flagged Planned, shown in their own section above the rest. */
     val planned: List<Recipe> = emptyList(),
     val others: List<Recipe> = emptyList(),
     val sort: RecipeSort = RecipeSort.ALPHA,
+    /** The active search query; blank when search is inactive. */
+    val query: String = "",
     val isRefreshing: Boolean = false,
     val isOnline: Boolean = true,
     val hasLoaded: Boolean = false,
 ) {
     val isEmpty: Boolean get() = planned.isEmpty() && others.isEmpty()
+
+    /** True while a non-blank query is filtering the list. */
+    val isSearching: Boolean get() = query.isNotBlank()
+
+    /** All matching recipes as one flat list, used while searching. */
+    val matches: List<Recipe> get() = planned + others
 }
 
 @HiltViewModel
@@ -45,6 +64,7 @@ class RecipesViewModel @Inject constructor(
 
     private val isRefreshing = MutableStateFlow(false)
     private val sort = MutableStateFlow(RecipeSort.ALPHA)
+    private val query = MutableStateFlow("")
 
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val messages: SharedFlow<String> = _messages.asSharedFlow()
@@ -59,18 +79,22 @@ class RecipesViewModel @Inject constructor(
     val uiState: StateFlow<RecipesUiState> = combine(
         repository.recipes(),
         sort,
+        query,
         isRefreshing,
         connectivityObserver.isOnline,
-    ) { recipes, sortMode, refreshing, online ->
+    ) { recipes, sortMode, searchQuery, refreshing, online ->
         val sorted = when (sortMode) {
             RecipeSort.ALPHA -> recipes.sortedBy { it.name.lowercase() }
             RecipeSort.RECENT -> recipes.sortedByDescending { it.lastEditedAt }
         }
-        val (planned, others) = sorted.partition { it.planned }
+        val q = searchQuery.trim()
+        val filtered = if (q.isEmpty()) sorted else sorted.filter { it.matches(q) }
+        val (planned, others) = filtered.partition { it.planned }
         RecipesUiState(
             planned = planned,
             others = others,
             sort = sortMode,
+            query = searchQuery,
             isRefreshing = refreshing,
             isOnline = online,
             hasLoaded = true,
@@ -79,6 +103,11 @@ class RecipesViewModel @Inject constructor(
 
     fun setSort(mode: RecipeSort) {
         sort.value = mode
+    }
+
+    /** Update the active search query; blank clears the filter. */
+    fun setQuery(value: String) {
+        query.value = value
     }
 
     fun refresh() {

@@ -384,6 +384,15 @@ requirement below reproduces the app's behavior exactly.
   defaults to `https://`). It is **editable** (a pencil opens a link dialog; leaving it empty
   clears it) and settable at create time — both offline-safe/online-first like the rest of the
   recipe's editable fields (R8.7). When unset, a subtle "Add a link" affordance appears instead.
+- **R8.13** **Search.** A search field is pinned under the title (below the sort chips). Typing
+  filters the list to recipes matching the query in **any** text property — `Name`,
+  `Ingredients`, `Instructions`, or `URL` — case-insensitively (substring match, query
+  trimmed). While a query is active, the Planned/"All recipes" grouping (R8.2) collapses into a
+  single flat list of all matches, and a "No matches" empty state shows when nothing matches. A
+  trailing clear (✕) button empties the field, drops focus so the keyboard closes, and restores
+  the normal grouped view; the keyboard's action key ("Search") also dismisses the keyboard
+  without clearing the query, so the user can always leave the field. Search is a purely local
+  filter over the cached rows (no Notion query).
 
 ---
 
