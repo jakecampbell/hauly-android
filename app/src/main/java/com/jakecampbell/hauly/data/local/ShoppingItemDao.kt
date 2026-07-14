@@ -130,6 +130,9 @@ interface ShoppingItemDao {
         """
         UPDATE OR IGNORE shopping_items
         SET remote_id = :remoteId,
+            -- The row now has a page id, so any assumed-shopped placeholder is
+            -- spent (the flag is only read while PENDING_CREATE). Hygiene.
+            shopped_assumed = 0,
             sync_status = CASE WHEN sync_status = 'PENDING_CREATE'
                                THEN 'PENDING_UPDATE' ELSE sync_status END
         WHERE local_id = :localId AND remote_id IS NULL

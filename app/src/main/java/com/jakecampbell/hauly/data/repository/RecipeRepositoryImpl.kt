@@ -220,6 +220,11 @@ class RecipeRepositoryImpl @Inject constructor(
             // and seed the refs from the suggestion's known recipe links (plus
             // this recipe) so a later relation push doesn't wipe them. A relation
             // push sends the local ref set as the page's *complete* relation.
+            //
+            // With no suggestion (name typed in full, or added offline) there is
+            // no shopped state to seed from: create the row unshopped but mark it
+            // `shoppedAssumed`, so the create-with-merge flush adopts the existing
+            // page's Shopped instead of un-shopping it (R5.4/R8.5).
             val shopped = suggestion?.shopped == true
             val localId = UUID.randomUUID().toString()
             itemDao.upsert(
@@ -231,6 +236,7 @@ class RecipeRepositoryImpl @Inject constructor(
                     tags = emptyList(),
                     quantity = quantity,
                     shopped = shopped,
+                    shoppedAssumed = suggestion == null,
                     syncStatus = SyncStatus.PENDING_CREATE,
                     updatedAt = now,
                 )

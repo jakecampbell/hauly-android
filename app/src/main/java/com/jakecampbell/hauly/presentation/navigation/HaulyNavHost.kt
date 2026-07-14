@@ -1,5 +1,6 @@
 package com.jakecampbell.hauly.presentation.navigation
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -24,13 +25,15 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
-import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -50,9 +53,6 @@ object Routes {
     const val SHOPPING = "shopping"
     const val RECIPES = "recipes"
     const val SETTINGS = "settings"
-    const val RECIPE_DETAIL = "recipe/{recipeId}"
-
-    fun recipeDetail(recipeId: String) = "recipe/$recipeId"
 }
 
 private data class HomePage(
@@ -83,8 +83,16 @@ fun HaulyNavHost(startConfigured: Boolean, networkBusy: Boolean) {
     val pagerState = rememberPagerState(pageCount = { homePages.size })
     val scope = rememberCoroutineScope()
 
+    // The recipe currently open, if any. It lives inside the Recipes pager page
+    // (page 1 shows the detail when set, the list otherwise), so it stays open
+    // while the user swipes to Shopping or visits Settings, and the pager's own
+    // horizontal swipe keeps working on it. Cleared only when the recipe is
+    // closed (back or delete). Saved so it survives rotation/process death.
+    var openRecipeId by rememberSaveable { mutableStateOf<String?>(null) }
+
     // Select a list tab: animate the pager if already home, otherwise pop back
-    // to home (from Settings) and jump the pager to it.
+    // to home (from Settings) and jump the pager to it. Tapping Recipes lands on
+    // page 1, which shows the open recipe (if any) rather than the list.
     fun selectPage(index: Int) {
         if (currentRoute == Routes.HOME) {
             scope.launch { pagerState.animateScrollToPage(index) }
@@ -97,10 +105,22 @@ fun HaulyNavHost(startConfigured: Boolean, networkBusy: Boolean) {
         }
     }
 
+    // System back closes the open recipe while it's the visible page (the
+    // Recipes list slides back into page 1); elsewhere back behaves normally.
+    BackHandler(
+        enabled = openRecipeId != null &&
+            currentRoute == Routes.HOME &&
+            pagerState.currentPage == homePages.indexOfFirst { it.route == Routes.RECIPES },
+    ) {
+        openRecipeId = null
+    }
+
     Box {
         Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) },
             bottomBar = {
+                // The bar shows on the pager (including an open recipe, which
+                // lives in the Recipes page) and on Settings.
                 if (currentRoute == Routes.HOME || currentRoute == Routes.SETTINGS) {
                     NavigationBar {
                         homePages.forEachIndexed { index, page ->
@@ -146,17 +166,13 @@ fun HaulyNavHost(startConfigured: Boolean, networkBusy: Boolean) {
                     HomePager(
                         pagerState = pagerState,
                         snackbarHostState = snackbarHostState,
-                        navController = navController,
+                        openRecipeId = openRecipeId,
+                        onOpenRecipe = { openRecipeId = it },
+                        onCloseRecipe = { openRecipeId = null },
                     )
                 }
                 composable(Routes.SETTINGS) {
                     SettingsScreen(snackbarHostState = snackbarHostState)
-                }
-                composable(Routes.RECIPE_DETAIL) {
-                    RecipeDetailScreen(
-                        snackbarHostState = snackbarHostState,
-                        onBack = { navController.popBackStack() },
-                    )
                 }
             }
         }
@@ -184,12 +200,18 @@ fun HaulyNavHost(startConfigured: Boolean, networkBusy: Boolean) {
  * bottom bar reflects and drives the same [pagerState]. Each page's ViewModel is
  * scoped to the home back-stack entry, so data survives swiping even though the
  * off-screen page composition is disposed.
+ *
+ * The Recipes page shows the open recipe's detail ([openRecipeId]) in place of
+ * the list — so the detail is a first-class pager page: the bottom bar stays up,
+ * swiping to Shopping still works, and there is no list-then-detail flash.
  */
 @Composable
 private fun HomePager(
     pagerState: androidx.compose.foundation.pager.PagerState,
     snackbarHostState: SnackbarHostState,
-    navController: NavHostController,
+    openRecipeId: String?,
+    onOpenRecipe: (String) -> Unit,
+    onCloseRecipe: () -> Unit,
 ) {
     HorizontalPager(
         state = pagerState,
@@ -197,10 +219,19 @@ private fun HomePager(
     ) { page ->
         when (homePages[page].route) {
             Routes.SHOPPING -> ShoppingScreen(snackbarHostState = snackbarHostState)
-            Routes.RECIPES -> RecipesScreen(
-                snackbarHostState = snackbarHostState,
-                onRecipeClick = { navController.navigate(Routes.recipeDetail(it)) },
-            )
+            Routes.RECIPES ->
+                if (openRecipeId != null) {
+                    RecipeDetailScreen(
+                        recipeId = openRecipeId,
+                        snackbarHostState = snackbarHostState,
+                        onBack = onCloseRecipe,
+                    )
+                } else {
+                    RecipesScreen(
+                        snackbarHostState = snackbarHostState,
+                        onRecipeClick = onOpenRecipe,
+                    )
+                }
         }
     }
 }

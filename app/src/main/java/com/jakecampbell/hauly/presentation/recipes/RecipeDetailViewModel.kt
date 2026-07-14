@@ -1,6 +1,5 @@
 package com.jakecampbell.hauly.presentation.recipes
 
-import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jakecampbell.hauly.data.sync.ConnectivityObserver
@@ -15,6 +14,9 @@ import com.jakecampbell.hauly.domain.repository.ShoppingRepository
 import com.jakecampbell.hauly.domain.usecase.AddIngredientToList
 import com.jakecampbell.hauly.presentation.shopping.AddItemController
 import com.jakecampbell.hauly.presentation.shopping.AddItemUiState
+import dagger.assisted.Assisted
+import dagger.assisted.AssistedFactory
+import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,7 +28,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
 data class RecipeDetailUiState(
     val recipe: Recipe? = null,
@@ -42,16 +43,21 @@ data class RecipeDetailUiState(
     val loadError: String? = null,
 )
 
-@HiltViewModel
-class RecipeDetailViewModel @Inject constructor(
-    savedStateHandle: SavedStateHandle,
+@HiltViewModel(assistedFactory = RecipeDetailViewModel.Factory::class)
+class RecipeDetailViewModel @AssistedInject constructor(
+    @Assisted private val recipeId: String,
     private val repository: RecipeRepository,
     private val shoppingRepository: ShoppingRepository,
     private val addIngredientToList: AddIngredientToList,
     connectivityObserver: ConnectivityObserver,
 ) : ViewModel() {
 
-    private val recipeId: String = checkNotNull(savedStateHandle["recipeId"])
+    /** Assisted factory so the detail can be scoped/keyed by recipe id when it
+     * lives inside the Recipes pager page rather than a nav route. */
+    @AssistedFactory
+    interface Factory {
+        fun create(recipeId: String): RecipeDetailViewModel
+    }
 
     private val transient = MutableStateFlow(RecipeDetailUiState())
 

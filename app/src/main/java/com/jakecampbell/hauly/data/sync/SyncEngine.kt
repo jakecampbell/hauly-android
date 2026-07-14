@@ -148,13 +148,17 @@ class SyncEngine @Inject constructor(
             val mergedStores = (existingRemote.stores + item.stores).distinctBy { it.lowercase() }
             val mergedTags = (existingRemote.tags + item.tags).distinctBy { it.lowercase() }
             val quantity = item.quantity ?: existingRemote.quantity
+            // A `shoppedAssumed` row never asserted its Shopped value (a recipe
+            // add with no suggestion): adopt the existing page's state instead of
+            // un-shopping it. Every other row pushes the value it asserted (R7.11).
+            val shopped = if (item.shoppedAssumed) existingRemote.shopped else item.shopped
             remote.updateItem(
                 pageId = existingRemote.pageId,
                 name = existingRemote.name,
                 stores = mergedStores,
                 tags = mergedTags,
                 quantity = quantity,
-                shopped = item.shopped,
+                shopped = shopped,
                 recipeIds = mergedRecipes,
             )
             val wroteBack = itemDao.upsertIfUnchanged(
@@ -164,12 +168,27 @@ class SyncEngine @Inject constructor(
                     stores = mergedStores,
                     tags = mergedTags,
                     quantity = quantity,
+                    // Converge on the page's real state; the assumption is resolved.
+                    shopped = shopped,
+                    shoppedAssumed = false,
                     syncStatus = SyncStatus.SYNCED,
                     updatedAt = now,
                 ),
                 item.updatedAt,
             )
             if (!wroteBack) itemDao.attachRemoteId(item.localId, existingRemote.pageId)
+            // R5.10: the relation we just pushed is the page's complete relation,
+            // but the merge pulled in recipe links the local ref set didn't have.
+            // Write the union back so a later PENDING_UPDATE push doesn't drop
+            // them. Guard on the cheap set diff first (keeps the byLocalId read
+            // off the common path), and only if the row still exists — a
+            // mid-flight delete hard-removes the row and its refs, and re-adding
+            // them would orphan them.
+            if (mergedRecipes.toSet() != recipeIds.toSet() &&
+                itemDao.byLocalId(item.localId) != null
+            ) {
+                itemDao.upsertRefs(mergedRecipes.map { RecipeItemCrossRef(it, item.localId) })
+            }
         } else {
             val created = remote.createItem(
                 databaseId = databaseId,
@@ -183,6 +202,8 @@ class SyncEngine @Inject constructor(
             val wroteBack = itemDao.upsertIfUnchanged(
                 item.copy(
                     remoteId = created?.pageId,
+                    // No page existed, so the assumed unshopped state was right.
+                    shoppedAssumed = false,
                     syncStatus = if (created != null) SyncStatus.SYNCED else SyncStatus.ERROR,
                     updatedAt = now,
                 ),

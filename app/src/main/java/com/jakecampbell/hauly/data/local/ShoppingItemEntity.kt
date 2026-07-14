@@ -65,4 +65,18 @@ data class ShoppingItemEntity(
      */
     @ColumnInfo(name = "trip_shopped")
     val tripShopped: Boolean = false,
+
+    /**
+     * Local-only flag: [shopped] above is a placeholder this row assumed, not a
+     * value the user asserted — set only by a recipe add of an item that isn't
+     * cached and wasn't picked from a suggestion (R8.5). The create-with-merge
+     * flush adopts the existing page's Shopped instead of pushing the
+     * placeholder (R5.4); any explicit shopped write clears it.
+     *
+     * Only ever read while the row is PENDING_CREATE, and PENDING_CREATE implies
+     * remoteId == null — so the flag's life ends at the first successful
+     * create-flush and a stale one is inert.
+     */
+    @ColumnInfo(name = "shopped_assumed")
+    val shoppedAssumed: Boolean = false,
 )

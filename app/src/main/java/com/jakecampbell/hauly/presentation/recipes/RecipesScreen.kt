@@ -46,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -219,7 +220,9 @@ private fun PlannedBox(recipes: List<Recipe>, onRecipeClick: (String) -> Unit) {
 
 /**
  * Search field pinned under the title. Filters the list across every recipe
- * property; the trailing clear button appears once there is text to clear.
+ * property; the trailing clear button appears whenever there is text to clear
+ * or the field is focused, so the user can always drop focus and dismiss the
+ * keyboard.
  */
 @Composable
 private fun SearchBar(
@@ -228,19 +231,22 @@ private fun SearchBar(
     onClear: () -> Unit,
 ) {
     val focusManager = LocalFocusManager.current
+    var isFocused by remember { mutableStateOf(false) }
     OutlinedTextField(
         value = query,
         onValueChange = onQueryChange,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .onFocusChanged { isFocused = it.isFocused },
         singleLine = true,
         placeholder = { Text("Search recipes") },
         leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
         trailingIcon = {
-            if (query.isNotEmpty()) {
+            if (query.isNotEmpty() || isFocused) {
                 // Clearing empties the field and drops focus so the keyboard
                 // closes — otherwise there's no way out of an active search.
+                // While focused with no text, this acts as a plain "drop focus".
                 IconButton(onClick = {
                     onClear()
                     focusManager.clearFocus()

@@ -93,6 +93,8 @@ class ShoppingRepositoryImpl @Inject constructor(
         val updated = existing.copy(
             shopped = false,
             tripShopped = false,
+            // The user asserted this item onto the active list — clear any assumption.
+            shoppedAssumed = false,
             stores = withStore(existing.stores, store),
             quantity = quantity ?: existing.quantity,
         )
@@ -114,6 +116,8 @@ class ShoppingRepositoryImpl @Inject constructor(
                 tripShopped = shopped,
                 // Manual drag position only holds until the item is shopped.
                 manualRank = if (shopped) null else item.manualRank,
+                // An explicit shopped write is an assertion; it beats any assumption.
+                shoppedAssumed = false,
                 syncStatus = pendingFor(item),
                 updatedAt = now,
             )
@@ -234,6 +238,8 @@ class ShoppingRepositoryImpl @Inject constructor(
             base.copy(
                 shopped = false,
                 tripShopped = false,
+                // Reactivation is an explicit un-shop assertion, not an assumption.
+                shoppedAssumed = false,
                 stores = withStore(base.stores, store),
                 quantity = quantity ?: base.quantity,
                 syncStatus = pendingFor(base),

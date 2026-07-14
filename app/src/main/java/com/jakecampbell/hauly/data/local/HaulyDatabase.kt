@@ -12,7 +12,7 @@ import androidx.room.TypeConverters
         RecipeItemCrossRef::class,
         RecipeLineMarkEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)

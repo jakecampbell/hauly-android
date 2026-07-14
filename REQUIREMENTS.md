@@ -93,9 +93,13 @@ requirement below reproduces the app's behavior exactly.
 - **R4.1** `shopping_items` table: local UUID primary key `local_id`; nullable unique
   `remote_id` (Notion page id); `name` unique with `NOCASE` collation (duplicate prevention);
   `stores` and `tags` as JSON-converted string lists; nullable `quantity` (Double);
-  `shopped`; `sync_status`; `updated_at` (epoch millis); plus two **local-only** columns that
-  bypass sync entirely: `manual_rank` (nullable drag position) and `trip_shopped`
-  (current-trip ledger flag).
+  `shopped`; `sync_status`; `updated_at` (epoch millis); plus three **local-only** columns that
+  bypass sync entirely: `manual_rank` (nullable drag position), `trip_shopped`
+  (current-trip ledger flag), and `shopped_assumed`. The last means the row's `shopped` value
+  is a placeholder it assumed, not one the user asserted — set only by a recipe add of an item
+  that isn't cached and wasn't picked from a suggestion (R8.5); it is only ever read while the
+  row is `PENDING_CREATE` (which implies `remote_id IS NULL`), the create-with-merge flush
+  resolves it (R5.4), and any explicit shopped write clears it.
 - **R4.2** `recipes` table: Notion page id as primary key, `name`, `ingredients` and
   `instructions` (newline-separated text from the `Ingredients`/`Instructions` rich_text
   properties), `url` (the `URL` source link), `planned`, `sync_status`, `updated_at`, and
@@ -136,7 +140,14 @@ requirement below reproduces the app's behavior exactly.
 - **R5.4** **Create-with-merge duplicate prevention:** before creating, search Notion for an
   existing page with the same name (case-insensitive). If found, update that page instead —
   union the stores, tags, and recipe relations; local quantity wins if set, otherwise keep
-  remote — and link the local row to the existing page id.
+  remote — and link the local row to the existing page id. For `Shopped`: a `shopped_assumed`
+  row (R4.1) **adopts the existing page's `Shopped`** rather than pushing its placeholder — so
+  a recipe add of an uncached, unsuggested name never un-shops the page (R8.5); every other row
+  pushes the value it asserted (as R7.11's reactivate un-shops a shopped page). The local row
+  then converges on that resolved state (`shopped` written back, `shopped_assumed` cleared).
+  The **merged recipe relation is also written back to the local refs** when it differs from the
+  local set (and the row still exists) — completing R5.10 at the merge site, so the next
+  `PENDING_UPDATE` push doesn't drop links this merge preserved.
 - **R5.5** Refresh replaces the cache with the remote active-item snapshot, but must **never
   clobber**: rows with `PENDING_*` status, rows with `trip_shopped = 1` (trip rows are
   local-owned until "Done"), and rows updated locally within the last 60 seconds
@@ -373,8 +384,13 @@ requirement below reproduces the app's behavior exactly.
   (per R4.5/R8.3) and its add emits a distinct "already shopped" snackbar. A remote-only
   suggestion (a shopped item evicted from the cache, found via search) goes through the same
   create path — its shopped state seeds the new row so the create-with-merge flush (R5.4)
-  re-links it **without un-shopping** the Notion page and without duplicating. Blank names are
-  rejected.
+  re-links it **without un-shopping** the Notion page and without duplicating. When the name is
+  typed **in full without tapping a suggestion** (or added offline), there is no shopped state
+  to seed: the row is created unshopped but flagged `shopped_assumed` (R4.1), and the
+  create-with-merge flush adopts the existing page's `Shopped` (R5.4) so the page is still not
+  un-shopped. Residual: until that flush lands the item displays unshopped and sits on the
+  active list, and checking it off in the meantime is an explicit assertion that wins over the
+  assumption. Blank names are rejected.
 - **R8.6** Recipe screens include loading and error states like every other screen.
 - **R8.7** **Editable Ingredients & Instructions.** Both are stored as newline-separated text
   in Notion rich_text properties (§2.2) and edited in place: each section has a pencil that
@@ -383,7 +399,12 @@ requirement below reproduces the app's behavior exactly.
   the Planned toggle) and the sync worker flushes the full recipe property payload (name,
   ingredients, instructions, planned). Rich_text is chunked to respect Notion's 2000-char
   per-object limit. The **Ingredients** view renders like **ruled paper**: each non-blank line
-  is shown with a full-width divider beneath it; an empty section shows a muted placeholder.
+  is shown with a full-width divider beneath it; an empty section shows a muted placeholder. A
+  line whose text begins with `--` is a **heading** within the ingredient list: the `--` marker
+  is stripped and the line is rendered with extra whitespace above it and a slight background
+  highlight to group the ingredients beneath it. Headings are display-only — they are not
+  tappable and carry no per-line strike (R8.8). This convention applies to the **Ingredients**
+  list only, not Instructions.
 - **R8.8** **Per-line strike (focus) tracking.** In view mode every non-blank Ingredients/
   Instructions line is tappable; tapping crosses it out and dims it (~60% alpha), tapping again
   restores it, to help the cook keep their place. This is **local-only** (R4.7) — never synced
@@ -410,9 +431,11 @@ requirement below reproduces the app's behavior exactly.
   trimmed). While a query is active, the Planned/"All recipes" grouping (R8.2) collapses into a
   single flat list of all matches, and a "No matches" empty state shows when nothing matches. A
   trailing clear (✕) button empties the field, drops focus so the keyboard closes, and restores
-  the normal grouped view; the keyboard's action key ("Search") also dismisses the keyboard
-  without clearing the query, so the user can always leave the field. Search is a purely local
-  filter over the cached rows (no Notion query).
+  the normal grouped view. The clear button is shown whenever the field **has text or is
+  focused** (even with no text), so a focused-but-empty field can always be dismissed; the
+  keyboard's action key ("Search") also dismisses the keyboard without clearing the query, so
+  the user can always leave the field. Search is a purely local filter over the cached rows (no
+  Notion query).
 
 ---
 
@@ -426,9 +449,19 @@ requirement below reproduces the app's behavior exactly.
   the chosen tab. The bottom bar shows on both the pager and Settings. Each list tab's ViewModel
   is scoped to the pager's back-stack entry so its data survives swiping; the off-screen page
   composition is disposed (which is what lets the shopping chip row re-open scrolled to the
-  leftmost chip, R7.2). The recipe detail is a full-screen route pushed over the pager (no
-  bottom bar). A horizontal swipe that begins on a horizontally scrollable child (e.g. the
-  store-chip row) scrolls that child first and only pages once it reaches its edge.
+  leftmost chip, R7.2). The recipe detail is **the content of the Recipes pager page** — the
+  page shows the open recipe's detail in place of the list — not a separate route over the
+  pager. So it is a first-class tab surface: the bottom bar stays visible (Recipes selected),
+  and the **horizontal swipe still works on it** (swiping right reveals Shopping, exactly as
+  from the list). A recipe stays "open" once entered until it is **closed** — closing is the
+  detail's back affordance, the system back button (active only while the detail is the visible
+  page), or a delete (R8.11), all of which clear the open-recipe state and return the page to
+  the list. Switching to another tab (Shopping/Settings) from an open recipe does **not** close
+  it: returning to Recipes shows the still-open recipe rather than the list. Because the detail
+  replaces the list in the same page, opening a recipe swaps to it directly with **no
+  list-then-detail flash**. The open-recipe id is remembered across rotation/process death. A
+  horizontal swipe that begins on a horizontally scrollable child (e.g. the store-chip row)
+  scrolls that child first and only pages once it reaches its edge.
 - **R9.2** A **global network-activity indicator**: a thin (2 dp) indeterminate progress bar
   overlaid at the top of the screen (below the status bar), visible whenever any Notion HTTP
   request is in flight. Driven by an OkHttp interceptor counting active requests, with the

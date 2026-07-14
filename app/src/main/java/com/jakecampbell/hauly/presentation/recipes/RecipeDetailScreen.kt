@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -82,9 +84,14 @@ import com.jakecampbell.hauly.presentation.shopping.formatQuantity
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RecipeDetailScreen(
+    recipeId: String,
     snackbarHostState: SnackbarHostState,
     onBack: () -> Unit,
-    viewModel: RecipeDetailViewModel = hiltViewModel(),
+    // Keyed by recipe id so each open recipe gets its own instance while the
+    // detail lives inside the Recipes pager page (survives swiping away).
+    viewModel: RecipeDetailViewModel = hiltViewModel<RecipeDetailViewModel, RecipeDetailViewModel.Factory>(
+        key = recipeId,
+    ) { factory -> factory.create(recipeId) },
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val addState by viewModel.addState.collectAsStateWithLifecycle()
@@ -248,6 +255,7 @@ fun RecipeDetailScreen(
                                 text = state.recipe?.ingredients.orEmpty(),
                                 struck = state.struckLines[RecipeSection.INGREDIENTS].orEmpty(),
                                 ruled = true,
+                                supportHeadings = true,
                                 emptyHint = "No ingredients yet — tap the pencil to add.",
                                 onToggle = { viewModel.toggleLine(RecipeSection.INGREDIENTS, it) },
                             )
@@ -496,6 +504,11 @@ private fun SectionEditor(
  * line can be struck through (crossed out and dimmed) to track progress; when
  * [ruled] each line gets a divider beneath it, like ruled paper. Line indices
  * are relative to the raw split so strikes stay stable across blank lines.
+ *
+ * When [supportHeadings], a line whose text begins with `--` is treated as a
+ * section heading within the list: the marker is stripped and the line is drawn
+ * with extra whitespace above and a slight background highlight, and it is not
+ * tappable/strikeable (it's a label, not a checkable item).
  */
 @Composable
 private fun TextLines(
@@ -504,6 +517,7 @@ private fun TextLines(
     ruled: Boolean,
     emptyHint: String,
     onToggle: (Int) -> Unit,
+    supportHeadings: Boolean = false,
 ) {
     val lines = text.split("\n")
     if (lines.none { it.isNotBlank() }) {
@@ -518,6 +532,10 @@ private fun TextLines(
     Column(modifier = Modifier.fillMaxWidth()) {
         lines.forEachIndexed { index, line ->
             if (line.isBlank()) return@forEachIndexed
+            if (supportHeadings && line.trimStart().startsWith("--")) {
+                IngredientHeading(text = line.trimStart().removePrefix("--").trim())
+                return@forEachIndexed
+            }
             val isStruck = index in struck
             Text(
                 text = line,
@@ -535,6 +553,28 @@ private fun TextLines(
             }
         }
     }
+}
+
+/**
+ * A heading line within the ingredient list (a line prefixed with `--`).
+ * Rendered with breathing room above it and a subtle filled background so it
+ * visually groups the ingredients that follow.
+ */
+@Composable
+private fun IngredientHeading(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 16.dp)
+            .background(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(6.dp),
+            )
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+    )
 }
 
 /**
