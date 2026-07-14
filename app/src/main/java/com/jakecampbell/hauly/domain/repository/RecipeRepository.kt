@@ -4,12 +4,21 @@ import com.jakecampbell.hauly.domain.model.AddItemResult
 import com.jakecampbell.hauly.domain.model.Recipe
 import com.jakecampbell.hauly.domain.model.RecipeBlock
 import com.jakecampbell.hauly.domain.model.RecipeSection
+import com.jakecampbell.hauly.domain.model.RecipeSort
 import com.jakecampbell.hauly.domain.model.ShoppingItem
 import kotlinx.coroutines.flow.Flow
 
 interface RecipeRepository {
 
     fun recipes(): Flow<List<Recipe>>
+
+    /**
+     * The recipe list's chosen sort. Local-only (never synced) and persisted, so
+     * it survives both a tab switch and an app restart.
+     */
+    fun recipeSort(): Flow<RecipeSort>
+
+    suspend fun setRecipeSort(mode: RecipeSort)
 
     fun recipe(id: String): Flow<Recipe?>
 

@@ -37,6 +37,12 @@ data class ShoppedHistoryUiState(
     val error: String? = null,
 )
 
+/** One tag's section of the grouped active list. */
+data class TagGroup(val name: String, val items: List<ShoppingItem>)
+
+/** Heading for items carrying no tags at all; always sorted last. */
+const val UNTAGGED_GROUP = "other"
+
 /** null store filter = show every active item, including uncategorized ones. */
 data class ShoppingUiState(
     val items: List<ShoppingItem> = emptyList(),
@@ -49,7 +55,30 @@ data class ShoppingUiState(
     val hasLoaded: Boolean = false,
     /** This trip's checked-off items, shown crossed out below the active list. */
     val shoppedItems: List<ShoppingItem> = emptyList(),
+    /** Group the active list by tag instead of manual/alphabetical order. */
+    val groupByTags: Boolean = false,
+    /** [items] arranged into tag sections. Empty unless [groupByTags]. */
+    val groups: List<TagGroup> = emptyList(),
 )
+
+/**
+ * Arrange the active list into alphabetical tag sections, untagged items last
+ * under [UNTAGGED_GROUP]. An item with several tags appears in each of them.
+ *
+ * Manual drag order is deliberately dropped here (R7.4): [ShoppingItemDao.activeItems]
+ * sorts manually ranked rows first, which would otherwise float them to the top
+ * of every group. Grouped sections are purely alphabetical.
+ */
+private fun groupByTag(items: List<ShoppingItem>): List<TagGroup> {
+    val alphabetical = items.sortedBy { it.name.lowercase() }
+    val tagged = alphabetical
+        .flatMap { item -> item.tags.map { tag -> tag.lowercase() to item } }
+        .groupBy({ it.first }, { it.second })
+        .toSortedMap()
+        .map { (tag, tagItems) -> TagGroup(tag, tagItems) }
+    val untagged = alphabetical.filter { it.tags.isEmpty() }
+    return if (untagged.isEmpty()) tagged else tagged + TagGroup(UNTAGGED_GROUP, untagged)
+}
 
 @HiltViewModel
 class ShoppingViewModel @Inject constructor(
@@ -69,6 +98,7 @@ class ShoppingViewModel @Inject constructor(
         val online: Boolean,
         val refreshing: Boolean,
         val shoppedItems: List<ShoppingItem>,
+        val groupByTags: Boolean,
     )
 
     private val addController = AddItemController(viewModelScope, repository, connectivityObserver)
@@ -136,14 +166,16 @@ class ShoppingViewModel @Inject constructor(
         repository.pendingCount(),
         combine(
             selectedStore, connectivityObserver.isOnline, isRefreshing, repository.tripItems(),
-        ) { store, online, refreshing, shopped ->
-            LocalState(store, online, refreshing, shopped)
+            repository.groupByTags(),
+        ) { store, online, refreshing, shopped, grouped ->
+            LocalState(store, online, refreshing, shopped, grouped)
         },
     ) { items, stores, tags, pending, local ->
+        val visible = if (local.store == null) items else items.filter { candidate ->
+            candidate.stores.any { it.equals(local.store, ignoreCase = true) }
+        }
         ShoppingUiState(
-            items = if (local.store == null) items else items.filter { candidate ->
-                candidate.stores.any { it.equals(local.store, ignoreCase = true) }
-            },
+            items = visible,
             storeOptions = stores,
             tagOptions = tags,
             selectedStore = local.store,
@@ -152,6 +184,8 @@ class ShoppingViewModel @Inject constructor(
             pendingEdits = pending,
             hasLoaded = true,
             shoppedItems = local.shoppedItems,
+            groupByTags = local.groupByTags,
+            groups = if (local.groupByTags) groupByTag(visible) else emptyList(),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ShoppingUiState())
 
@@ -200,8 +234,20 @@ class ShoppingViewModel @Inject constructor(
         viewModelScope.launch { repository.setStoreOrder(order) }
     }
 
+    /** The group-by-tag icon above the list. Applies to every store view. */
+    fun toggleGrouping() {
+        viewModelScope.launch {
+            repository.setGroupByTags(!repository.groupByTags().first())
+        }
+    }
+
     fun assignStores(item: ShoppingItem, stores: List<String>) {
         viewModelScope.launch { repository.assignStores(item.localId, stores) }
+    }
+
+    /** Quick tag edit from the tag icon on a grouped row. */
+    fun assignTags(item: ShoppingItem, tags: List<String>) {
+        viewModelScope.launch { repository.assignTags(item.localId, tags) }
     }
 
     /** Delete button in the edit dialog: remove the item from Notion entirely. */
@@ -212,10 +258,16 @@ class ShoppingViewModel @Inject constructor(
         }
     }
 
-    /** Save the long-press edit dialog (name, stores, quantity). */
-    fun saveEdit(item: ShoppingItem, name: String, stores: List<String>, quantity: Double?) {
+    /** Save the long-press edit dialog (name, stores, tags, quantity). */
+    fun saveEdit(
+        item: ShoppingItem,
+        name: String,
+        stores: List<String>,
+        tags: List<String>,
+        quantity: Double?,
+    ) {
         viewModelScope.launch {
-            when (repository.updateDetails(item.localId, name, stores, quantity)) {
+            when (repository.updateDetails(item.localId, name, stores, tags, quantity)) {
                 EditItemResult.SAVED -> Unit
                 EditItemResult.DUPLICATE_NAME ->
                     _messages.emit("An item named \"$name\" already exists")

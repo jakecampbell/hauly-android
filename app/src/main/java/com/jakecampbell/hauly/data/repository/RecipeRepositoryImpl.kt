@@ -13,6 +13,7 @@ import com.jakecampbell.hauly.domain.model.AddItemResult
 import com.jakecampbell.hauly.domain.model.Recipe
 import com.jakecampbell.hauly.domain.model.RecipeBlock
 import com.jakecampbell.hauly.domain.model.RecipeSection
+import com.jakecampbell.hauly.domain.model.RecipeSort
 import com.jakecampbell.hauly.domain.model.ShoppingItem
 import com.jakecampbell.hauly.domain.model.SyncStatus
 import com.jakecampbell.hauly.domain.repository.RecipeRepository
@@ -35,6 +36,10 @@ class RecipeRepositoryImpl @Inject constructor(
 
     override fun recipes(): Flow<List<Recipe>> =
         recipeDao.recipes().map { list -> list.map { it.toDomain() } }
+
+    override fun recipeSort(): Flow<RecipeSort> = settings.recipeSort
+
+    override suspend fun setRecipeSort(mode: RecipeSort) = settings.setRecipeSort(mode)
 
     override fun recipe(id: String): Flow<Recipe?> =
         recipeDao.recipe(id).map { it?.toDomain() }

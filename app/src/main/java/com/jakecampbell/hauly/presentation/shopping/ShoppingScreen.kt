@@ -18,13 +18,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
@@ -34,11 +32,13 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddCircleOutline
+import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.RemoveCircleOutline
+import androidx.compose.material.icons.filled.Sell
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material3.Checkbox
@@ -47,6 +47,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -103,6 +104,7 @@ fun ShoppingScreen(
     val addState by viewModel.addState.collectAsStateWithLifecycle()
     val historyState by viewModel.historyState.collectAsStateWithLifecycle()
     var storePickerItem by remember { mutableStateOf<ShoppingItem?>(null) }
+    var tagPickerItem by remember { mutableStateOf<ShoppingItem?>(null) }
     var editItem by remember { mutableStateOf<ShoppingItem?>(null) }
 
     LaunchedEffect(Unit) {
@@ -135,6 +137,11 @@ fun ShoppingScreen(
                 onOrderPersist = viewModel::persistStoreOrder,
             )
 
+            GroupToggleRow(
+                enabled = state.groupByTags,
+                onToggle = viewModel::toggleGrouping,
+            )
+
             PullToRefreshBox(
                 isRefreshing = state.isRefreshing,
                 onRefresh = viewModel::refresh,
@@ -145,12 +152,15 @@ fun ShoppingScreen(
                 ReorderableItemList(
                     items = state.items,
                     shoppedItems = state.shoppedItems,
+                    groups = state.groups,
+                    groupByTags = state.groupByTags,
                     showEmpty = state.items.isEmpty() && state.shoppedItems.isEmpty() &&
                         state.hasLoaded,
                     selectedStore = state.selectedStore,
                     history = historyState,
                     onCheckedChange = viewModel::setShopped,
                     onStoreClick = { storePickerItem = it },
+                    onTagClick = { tagPickerItem = it },
                     onLongPress = { editItem = it },
                     onOrderPersist = viewModel::persistOrder,
                     onDiscard = viewModel::discard,
@@ -188,13 +198,26 @@ fun ShoppingScreen(
         )
     }
 
+    tagPickerItem?.let { item ->
+        TagPickerDialog(
+            item = item,
+            options = state.tagOptions,
+            onDismiss = { tagPickerItem = null },
+            onConfirm = { tags ->
+                viewModel.assignTags(item, tags)
+                tagPickerItem = null
+            },
+        )
+    }
+
     editItem?.let { item ->
         EditItemDialog(
             item = item,
             storeOptions = state.storeOptions,
+            tagOptions = state.tagOptions,
             onDismiss = { editItem = null },
-            onConfirm = { name, stores, quantity ->
-                viewModel.saveEdit(item, name, stores, quantity)
+            onConfirm = { name, stores, tags, quantity ->
+                viewModel.saveEdit(item, name, stores, tags, quantity)
                 editItem = null
             },
             onDelete = {
@@ -210,16 +233,23 @@ fun ShoppingScreen(
  * and, at the bottom, the collapsible browse of previously shopped items.
  * Active rows are mirrored into local state so reordering is instant; the
  * final order is persisted when the drag ends and Room re-emits it back.
+ *
+ * When [groupByTags] is on the active rows are replaced by [groups] — tag
+ * sections, no drag handles — while the trip and history sections below are
+ * unaffected either way.
  */
 @Composable
 private fun ReorderableItemList(
     items: List<ShoppingItem>,
     shoppedItems: List<ShoppingItem>,
+    groups: List<TagGroup>,
+    groupByTags: Boolean,
     showEmpty: Boolean,
     selectedStore: String?,
     history: ShoppedHistoryUiState,
     onCheckedChange: (ShoppingItem, Boolean) -> Unit,
     onStoreClick: (ShoppingItem) -> Unit,
+    onTagClick: (ShoppingItem) -> Unit,
     onLongPress: (ShoppingItem) -> Unit,
     onOrderPersist: (List<String>) -> Unit,
     onDiscard: (ShoppingItem) -> Unit,
@@ -237,27 +267,43 @@ private fun ReorderableItemList(
             localItems.apply { add(to.index, removeAt(from.index)) }
         }
     }
+    // Only on "All": inside a store view the store is a given, so the
+    // affordance is noise (R7.3).
+    val showStoreButton = selectedStore == null
 
     LazyColumn(
         state = lazyListState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 96.dp),
     ) {
-        items(localItems, key = { it.localId }) { item ->
-            ReorderableItem(reorderableState, key = item.localId) { isDragging ->
-                SwipeToDiscardBox(onDiscard = { onDiscard(item) }) {
-                    Surface(shadowElevation = if (isDragging) 4.dp else 0.dp) {
-                        ShoppingItemRow(
-                            item = item,
-                            onCheckedChange = { onCheckedChange(item, it) },
-                            onStoreClick = { onStoreClick(item) },
-                            onLongPress = { onLongPress(item) },
-                            dragHandle = {
-                                DragHandle(
-                                    onDragStopped = { onOrderPersist(localItems.map { it.localId }) },
-                                )
-                            },
-                        )
+        if (groupByTags) {
+            groupedItems(
+                groups = groups,
+                onCheckedChange = onCheckedChange,
+                onStoreClick = onStoreClick,
+                showStoreButton = showStoreButton,
+                onTagClick = onTagClick,
+                onLongPress = onLongPress,
+                onDiscard = onDiscard,
+            )
+        } else {
+            items(localItems, key = { it.localId }) { item ->
+                ReorderableItem(reorderableState, key = item.localId) { isDragging ->
+                    SwipeToDiscardBox(onDiscard = { onDiscard(item) }) {
+                        Surface(shadowElevation = if (isDragging) 4.dp else 0.dp) {
+                            ShoppingItemRow(
+                                item = item,
+                                onCheckedChange = { onCheckedChange(item, it) },
+                                onStoreClick = { onStoreClick(item) },
+                                showStoreButton = showStoreButton,
+                                onLongPress = { onLongPress(item) },
+                                trailing = {
+                                    DragHandle(
+                                        onDragStopped = { onOrderPersist(localItems.map { it.localId }) },
+                                    )
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -307,6 +353,85 @@ private fun ReorderableItemList(
             onLoadMoreHistory = onLoadMoreHistory,
             onAddFromHistory = onAddFromHistory,
         )
+    }
+}
+
+/**
+ * The active list split into tag sections. An item carrying several tags shows
+ * up under each of them, so rows are keyed by tag *and* id — keying by id alone
+ * would duplicate keys and throw. Rows keep every affordance except the drag
+ * handle: manual ordering is suspended while grouped (R7.21).
+ */
+private fun LazyListScope.groupedItems(
+    groups: List<TagGroup>,
+    onCheckedChange: (ShoppingItem, Boolean) -> Unit,
+    onStoreClick: (ShoppingItem) -> Unit,
+    showStoreButton: Boolean,
+    onTagClick: (ShoppingItem) -> Unit,
+    onLongPress: (ShoppingItem) -> Unit,
+    onDiscard: (ShoppingItem) -> Unit,
+) {
+    groups.forEach { group ->
+        item(key = "group-${group.name}") { TagGroupHeader(name = group.name) }
+
+        items(group.items, key = { "group-${group.name}-${it.localId}" }) { item ->
+            SwipeToDiscardBox(onDiscard = { onDiscard(item) }) {
+                ShoppingItemRow(
+                    item = item,
+                    onCheckedChange = { onCheckedChange(item, it) },
+                    onStoreClick = { onStoreClick(item) },
+                    showStoreButton = showStoreButton,
+                    onLongPress = { onLongPress(item) },
+                    // The drag handle's slot: nothing to drag while grouped,
+                    // and tags are what this view is arranged by.
+                    trailing = { TagButton(onClick = { onTagClick(item) }) },
+                )
+            }
+        }
+    }
+}
+
+/** Tag name in light gray, with a rule running from it to the right edge. */
+@Composable
+private fun TagGroupHeader(name: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = name,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        HorizontalDivider(
+            modifier = Modifier.padding(start = 8.dp).weight(1f),
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+        )
+    }
+}
+
+/**
+ * The group-by-tag toggle, under the store chips: blue when grouping is on,
+ * gray when off — the same on/off signal the selected store chip uses.
+ */
+@Composable
+private fun GroupToggleRow(enabled: Boolean, onToggle: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+        horizontalArrangement = Arrangement.End,
+    ) {
+        IconButton(onClick = onToggle, modifier = Modifier.size(32.dp)) {
+            Icon(
+                imageVector = Icons.Default.Category,
+                contentDescription = if (enabled) "Show items ungrouped"
+                else "Group items by tag",
+                tint = if (enabled) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+        }
     }
 }
 
@@ -664,15 +789,20 @@ private fun StoreFilterRow(
     }
 }
 
-/** Tap toggles shopped; long-press opens the edit dialog. */
+/**
+ * Tap toggles shopped; long-press opens the edit dialog. [trailing] is the
+ * drag handle on the ungrouped list and the tag button when grouped, where
+ * there is nothing to drag.
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ShoppingItemRow(
     item: ShoppingItem,
     onCheckedChange: (Boolean) -> Unit,
     onStoreClick: () -> Unit,
+    showStoreButton: Boolean,
     onLongPress: () -> Unit,
-    dragHandle: @Composable () -> Unit,
+    trailing: @Composable () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     Row(
@@ -692,38 +822,42 @@ private fun ShoppingItemRow(
     ) {
         Checkbox(checked = item.shopped, onCheckedChange = onCheckedChange)
         Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(item.name, style = MaterialTheme.typography.bodyLarge)
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    // An empty Qty in Notion means one of the item is needed.
-                    text = "Need: ${formatQuantity(item.quantity ?: 1.0)}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            Text(item.name, style = MaterialTheme.typography.bodyLarge)
             val subtitle = buildList {
-                if (item.stores.isNotEmpty()) add(item.stores.joinToString(", "))
+                // An empty Qty in Notion means one of the item is needed.
+                add("Need: ${formatQuantity(item.quantity ?: 1.0)}")
                 if (item.syncStatus == SyncStatus.PENDING_CREATE ||
                     item.syncStatus == SyncStatus.PENDING_UPDATE
                 ) add("pending sync")
             }.joinToString(" · ")
-            if (subtitle.isNotEmpty()) {
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (showStoreButton) {
+            IconButton(onClick = onStoreClick) {
+                Icon(
+                    Icons.Default.Storefront,
+                    contentDescription = "Assign store",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
-        IconButton(onClick = onStoreClick) {
-            Icon(
-                Icons.Default.Storefront,
-                contentDescription = "Assign store",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        dragHandle()
+        trailing()
+    }
+}
+
+/** Grouped-list counterpart to the drag handle: a quick tag edit. */
+@Composable
+private fun TagButton(onClick: () -> Unit) {
+    IconButton(onClick = onClick) {
+        Icon(
+            imageVector = Icons.Default.Sell,
+            contentDescription = "Assign tags",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

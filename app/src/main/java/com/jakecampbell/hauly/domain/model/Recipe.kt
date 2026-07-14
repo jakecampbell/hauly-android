@@ -21,3 +21,12 @@ data class Recipe(
 
 /** The two editable text sections of a recipe that support per-line strike tracking. */
 enum class RecipeSection { INGREDIENTS, INSTRUCTIONS }
+
+/** How the recipe list is ordered. Persisted locally; never synced to Notion. */
+enum class RecipeSort {
+    /** Alphabetical by name (the default). */
+    ALPHA,
+
+    /** Most recently edited in Notion first. */
+    RECENT,
+}

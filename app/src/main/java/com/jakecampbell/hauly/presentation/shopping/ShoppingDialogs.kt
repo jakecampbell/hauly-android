@@ -178,18 +178,20 @@ private fun SuggestionRow(
 }
 
 /**
- * Long-press edit dialog for an item's properties: name, stores, and quantity.
- * Shared by the shopping list and the recipe ingredient list. An empty
- * quantity clears the Qty in Notion. Delete removes the item from the Notion
- * database (a second tap confirms).
+ * Long-press edit dialog for an item's properties: name, stores, tags, and
+ * quantity. Shared by the shopping list and the recipe ingredient list. An empty
+ * quantity clears the Qty in Notion, and clearing every tag clears the Tags
+ * multi-select. Delete removes the item from the Notion database (a second tap
+ * confirms).
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun EditItemDialog(
     item: ShoppingItem,
     storeOptions: List<String>,
+    tagOptions: List<String>,
     onDismiss: () -> Unit,
-    onConfirm: (name: String, stores: List<String>, quantity: Double?) -> Unit,
+    onConfirm: (name: String, stores: List<String>, tags: List<String>, quantity: Double?) -> Unit,
     onDelete: () -> Unit,
 ) {
     var name by remember(item.localId) { mutableStateOf(item.name) }
@@ -198,15 +200,24 @@ fun EditItemDialog(
     }
     val selected = remember(item.localId) { item.stores.toMutableStateList() }
     var newStore by remember(item.localId) { mutableStateOf("") }
+    val selectedTags = remember(item.localId) { item.tags.toMutableStateList() }
+    var newTag by remember(item.localId) { mutableStateOf("") }
     var confirmDelete by remember(item.localId) { mutableStateOf(false) }
     // The item may carry stores that aren't in the schema options yet.
     val options = (storeOptions + item.stores).distinctBy { it.lowercase() }
+    // Likewise for tags: one just typed here won't reach tagOptions until the
+    // next refresh re-reads the schema (R5.8), but it must show as set now.
+    val tagChoices = (tagOptions + item.tags).distinctBy { it.lowercase() }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("edit") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Six fields overflow a short dialog on small screens.
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+            ) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it.lowercase() },
@@ -249,6 +260,36 @@ fun EditItemDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                Text(
+                    text = "Tags",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    tagChoices.forEach { tag ->
+                        FilterChip(
+                            selected = selectedTags.any { it.equals(tag, ignoreCase = true) },
+                            onClick = {
+                                val existing = selectedTags.firstOrNull { it.equals(tag, ignoreCase = true) }
+                                if (existing != null) selectedTags.remove(existing) else selectedTags.add(tag)
+                            },
+                            label = { Text(tag) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedLabelColor = MaterialTheme.colorScheme.primary,
+                            ),
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = newTag,
+                    // Lowercase, unlike the store field: the Notion Tags options
+                    // are lowercase, and a title-cased tag would create a second
+                    // option beside the existing one.
+                    onValueChange = { newTag = it.lowercase() },
+                    label = { Text("New tag (optional)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         },
         confirmButton = {
@@ -257,7 +298,10 @@ fun EditItemDialog(
                     val stores = (selected + newStore.trim().takeIf { it.isNotEmpty() })
                         .filterNotNull()
                         .distinctBy { it.lowercase() }
-                    onConfirm(name.trim(), stores, quantityText.trim().toDoubleOrNull())
+                    val tags = (selectedTags + newTag.trim().takeIf { it.isNotEmpty() })
+                        .filterNotNull()
+                        .distinctBy { it.lowercase() }
+                    onConfirm(name.trim(), stores, tags, quantityText.trim().toDoubleOrNull())
                 },
                 enabled = name.isNotBlank(),
             ) { Text("Save") }
@@ -273,6 +317,72 @@ fun EditItemDialog(
                 }
                 TextButton(onClick = onDismiss) { Text("Cancel") }
             }
+        },
+    )
+}
+
+/**
+ * Quick tag editor, opened by the tag icon on a grouped row — the counterpart
+ * to [StorePickerDialog] for one property, when the full [EditItemDialog] is
+ * more than the user wants. Saving with nothing selected clears the item's Tags
+ * in Notion, which also drops it into the "other" group.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun TagPickerDialog(
+    item: ShoppingItem,
+    options: List<String>,
+    onDismiss: () -> Unit,
+    onConfirm: (List<String>) -> Unit,
+) {
+    val selected = remember(item.localId) { item.tags.toMutableStateList() }
+    var newTag by remember(item.localId) { mutableStateOf("") }
+    // The item may carry tags the cached schema options don't list yet.
+    val choices = (options + item.tags).distinctBy { it.lowercase() }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Tags for ${item.name}") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    choices.forEach { tag ->
+                        FilterChip(
+                            selected = selected.any { it.equals(tag, ignoreCase = true) },
+                            onClick = {
+                                val existing = selected.firstOrNull { it.equals(tag, ignoreCase = true) }
+                                if (existing != null) selected.remove(existing) else selected.add(tag)
+                            },
+                            label = { Text(tag) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedLabelColor = MaterialTheme.colorScheme.primary,
+                            ),
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = newTag,
+                    // Lowercase for the same reason as the edit dialog: a
+                    // title-cased tag would create a duplicate Notion option.
+                    onValueChange = { newTag = it.lowercase() },
+                    label = { Text("New tag (optional)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val tags = (selected + newTag.trim().takeIf { it.isNotEmpty() })
+                        .filterNotNull()
+                        .distinctBy { it.lowercase() }
+                    onConfirm(tags)
+                },
+            ) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
         },
     )
 }

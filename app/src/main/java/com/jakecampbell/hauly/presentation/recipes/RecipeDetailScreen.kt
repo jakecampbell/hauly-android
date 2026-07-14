@@ -380,9 +380,10 @@ fun RecipeDetailScreen(
         EditItemDialog(
             item = item,
             storeOptions = state.storeOptions,
+            tagOptions = state.tagOptions,
             onDismiss = { editItem = null },
-            onConfirm = { name, stores, quantity ->
-                viewModel.saveEdit(item, name, stores, quantity)
+            onConfirm = { name, stores, tags, quantity ->
+                viewModel.saveEdit(item, name, stores, tags, quantity)
                 editItem = null
             },
             onDelete = {

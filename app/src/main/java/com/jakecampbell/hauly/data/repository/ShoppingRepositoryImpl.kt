@@ -61,6 +61,10 @@ class ShoppingRepositoryImpl @Inject constructor(
 
     override fun tagOptions(): Flow<List<String>> = settings.tagOptions
 
+    override fun groupByTags(): Flow<Boolean> = settings.groupByTags
+
+    override suspend fun setGroupByTags(enabled: Boolean) = settings.setGroupByTags(enabled)
+
     override fun pendingCount(): Flow<Int> = dao.pendingCount()
 
     override suspend fun refresh(): Result<Unit> = syncEngine.refreshShopping()
@@ -163,6 +167,7 @@ class ShoppingRepositoryImpl @Inject constructor(
         localId: String,
         name: String,
         stores: List<String>,
+        tags: List<String>,
         quantity: Double?,
     ): EditItemResult {
         val item = dao.byLocalId(localId) ?: return EditItemResult.SAVED
@@ -172,7 +177,12 @@ class ShoppingRepositoryImpl @Inject constructor(
         val clash = dao.byName(normalizedName)
         if (clash != null && clash.localId != item.localId) return EditItemResult.DUPLICATE_NAME
 
-        val updated = item.copy(name = normalizedName, stores = stores.map(::titleCase), quantity = quantity)
+        val updated = item.copy(
+            name = normalizedName,
+            stores = stores.map(::titleCase),
+            tags = normalizeTags(tags),
+            quantity = quantity,
+        )
         if (updated != item) {
             dao.upsert(updated.copy(syncStatus = pendingFor(item), updatedAt = System.currentTimeMillis()))
             syncScheduler.requestSync()
@@ -196,7 +206,7 @@ class ShoppingRepositoryImpl @Inject constructor(
         val item = dao.byLocalId(localId) ?: return
         dao.upsert(
             item.copy(
-                tags = tags,
+                tags = normalizeTags(tags),
                 syncStatus = pendingFor(item),
                 updatedAt = System.currentTimeMillis(),
             )
@@ -273,6 +283,15 @@ class ShoppingRepositoryImpl @Inject constructor(
         }
         syncScheduler.requestSync()
     }
+
+    /**
+     * Tags stay lowercase — deliberately unlike stores, which are title-cased.
+     * Notion matches multi-select options by exact string, so a title-cased tag
+     * would create a second option beside the existing lowercase one. Every tag
+     * write goes through here, whichever dialog it came from.
+     */
+    private fun normalizeTags(tags: List<String>): List<String> =
+        tags.map { it.trim().lowercase() }.filter { it.isNotEmpty() }.distinct()
 
     /** A row that hasn't been created remotely yet must stay PENDING_CREATE. */
     private fun pendingFor(item: ShoppingItemEntity): SyncStatus =

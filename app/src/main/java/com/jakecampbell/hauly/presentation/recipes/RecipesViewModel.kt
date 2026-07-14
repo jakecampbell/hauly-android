@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jakecampbell.hauly.data.sync.ConnectivityObserver
 import com.jakecampbell.hauly.domain.model.Recipe
+import com.jakecampbell.hauly.domain.model.RecipeSort
 import com.jakecampbell.hauly.domain.repository.RecipeRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -16,14 +17,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-
-enum class RecipeSort {
-    /** Alphabetical by name (the default). */
-    ALPHA,
-
-    /** Most recently edited in Notion first. */
-    RECENT,
-}
 
 /**
  * True when [query] (already trimmed, non-empty) is found in any of the recipe's
@@ -63,7 +56,6 @@ class RecipesViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val isRefreshing = MutableStateFlow(false)
-    private val sort = MutableStateFlow(RecipeSort.ALPHA)
     private val query = MutableStateFlow("")
 
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
@@ -78,7 +70,7 @@ class RecipesViewModel @Inject constructor(
 
     val uiState: StateFlow<RecipesUiState> = combine(
         repository.recipes(),
-        sort,
+        repository.recipeSort(),
         query,
         isRefreshing,
         connectivityObserver.isOnline,
@@ -101,8 +93,9 @@ class RecipesViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RecipesUiState())
 
+    /** Persisted, so the choice survives a tab switch and an app restart. */
     fun setSort(mode: RecipeSort) {
-        sort.value = mode
+        viewModelScope.launch { repository.setRecipeSort(mode) }
     }
 
     /** Update the active search query; blank clears the filter. */

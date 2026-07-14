@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -53,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jakecampbell.hauly.domain.model.Recipe
+import com.jakecampbell.hauly.domain.model.RecipeSort
 import com.jakecampbell.hauly.presentation.common.EmptyState
 import com.jakecampbell.hauly.presentation.common.OfflineBanner
 
@@ -65,6 +67,31 @@ fun RecipesScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showCreate by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+
+    // Re-sorting rearranges everything under the user, so send them back to the
+    // top rather than leaving them stranded mid-list. Armed by the tap, but the
+    // scroll itself must wait for the re-sorted rows to arrive: setSort travels
+    // through DataStore, and as the new order lands LazyColumn re-anchors the
+    // scroll onto whatever item was on top (it tracks items by key), which would
+    // undo a scroll started at tap time. Scrolling from this effect lands in the
+    // same composition as the new order, and an explicit scroll drops that key
+    // anchor. The flag keeps it tied to a real tap: this effect also runs when
+    // the pager re-creates the page (R9.1), where the restored scroll position
+    // must be left alone.
+    var scrollToTopOnSort by remember { mutableStateOf(false) }
+    val selectSort: (RecipeSort) -> Unit = { mode ->
+        scrollToTopOnSort = true
+        viewModel.setSort(mode)
+    }
+    LaunchedEffect(state.sort) {
+        if (scrollToTopOnSort) {
+            scrollToTopOnSort = false
+            // Not animated: the rows just reordered, so animating through a list
+            // the user never saw is motion without meaning.
+            listState.scrollToItem(0)
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.messages.collect { snackbarHostState.showSnackbar(it) }
@@ -94,13 +121,13 @@ fun RecipesScreen(
             )
             FilterChip(
                 selected = state.sort == RecipeSort.ALPHA,
-                onClick = { viewModel.setSort(RecipeSort.ALPHA) },
+                onClick = { selectSort(RecipeSort.ALPHA) },
                 label = { Text("A–Z") },
             )
             Spacer(Modifier.width(8.dp))
             FilterChip(
                 selected = state.sort == RecipeSort.RECENT,
-                onClick = { viewModel.setSort(RecipeSort.RECENT) },
+                onClick = { selectSort(RecipeSort.RECENT) },
                 label = { Text("Recent") },
             )
         }
@@ -146,7 +173,7 @@ fun RecipesScreen(
                 }
 
                 else -> {
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                         val rows = if (state.isSearching) state.matches else state.others
                         if (!state.isSearching && state.planned.isNotEmpty()) {
                             item { SectionHeader("All recipes") }

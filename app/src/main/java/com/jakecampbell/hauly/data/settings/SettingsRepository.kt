@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
+import com.jakecampbell.hauly.domain.model.RecipeSort
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -36,6 +37,12 @@ class SettingsRepository @Inject constructor(
 
         /** JSON list of store names in the user's manually chosen chip order. */
         val STORE_MANUAL_ORDER = stringPreferencesKey("store_manual_order")
+
+        /** The shopping list's group-by-tag view toggle. */
+        val GROUP_BY_TAGS = booleanPreferencesKey("group_by_tags")
+
+        /** [RecipeSort] name: the recipe list's chosen sort. */
+        val RECIPE_SORT = stringPreferencesKey("recipe_sort")
     }
 
     val isConfigured: Flow<Boolean> = dataStore.data.map { it[Keys.CONFIGURED] ?: false }
@@ -75,6 +82,31 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setStoreManualOrder(order: List<String>) {
         dataStore.edit { it[Keys.STORE_MANUAL_ORDER] = Json.encodeToString(order) }
+    }
+
+    /**
+     * Whether the active list is grouped by tag. Applies to every store view and
+     * survives restarts. Local-only, like the manual orders above.
+     */
+    val groupByTags: Flow<Boolean> = dataStore.data.map { it[Keys.GROUP_BY_TAGS] ?: false }
+
+    suspend fun setGroupByTags(enabled: Boolean) {
+        dataStore.edit { it[Keys.GROUP_BY_TAGS] = enabled }
+    }
+
+    /**
+     * The recipe list's sort. Survives restarts; an unreadable stored value
+     * (e.g. an enum constant removed in a later version) falls back to the
+     * default rather than crashing.
+     */
+    val recipeSort: Flow<RecipeSort> = dataStore.data.map { prefs ->
+        prefs[Keys.RECIPE_SORT]?.let { raw ->
+            runCatching { RecipeSort.valueOf(raw) }.getOrNull()
+        } ?: RecipeSort.ALPHA
+    }
+
+    suspend fun setRecipeSort(mode: RecipeSort) {
+        dataStore.edit { it[Keys.RECIPE_SORT] = mode.name }
     }
 
     suspend fun token(): String? = dataStore.data.first()[Keys.TOKEN]

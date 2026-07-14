@@ -37,6 +37,14 @@ interface ShoppingRepository {
     /** Tag names known from the Notion schema. */
     fun tagOptions(): Flow<List<String>>
 
+    /**
+     * Whether the active list is displayed grouped by tag. Applies to every
+     * store view and persists across restarts. Local-only.
+     */
+    fun groupByTags(): Flow<Boolean>
+
+    suspend fun setGroupByTags(enabled: Boolean)
+
     /** Number of local rows waiting to be pushed to Notion. */
     fun pendingCount(): Flow<Int>
 
@@ -68,14 +76,15 @@ interface ShoppingRepository {
 
     /**
      * Edit an item's properties from the edit dialog (long-press). A null
-     * [quantity] clears the Qty in Notion. Fails with [EditItemResult.DUPLICATE_NAME]
-     * when [name] is already used by a different item (names are unique,
-     * case-insensitive).
+     * [quantity] clears the Qty in Notion, and an empty [tags] clears the Tags
+     * multi-select. Fails with [EditItemResult.DUPLICATE_NAME] when [name] is
+     * already used by a different item (names are unique, case-insensitive).
      */
     suspend fun updateDetails(
         localId: String,
         name: String,
         stores: List<String>,
+        tags: List<String>,
         quantity: Double?,
     ): EditItemResult
 

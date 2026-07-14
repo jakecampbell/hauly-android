@@ -37,6 +37,8 @@ data class RecipeDetailUiState(
     val struckLines: Map<RecipeSection, Set<Int>> = emptyMap(),
     /** Known store names, for the long-press edit dialog's chips. */
     val storeOptions: List<String> = emptyList(),
+    /** Known tag names, for the long-press edit dialog's chips. */
+    val tagOptions: List<String> = emptyList(),
     val isRefreshing: Boolean = false,
     val isLoadingBlocks: Boolean = false,
     val isOnline: Boolean = true,
@@ -73,11 +75,22 @@ class RecipeDetailViewModel @AssistedInject constructor(
     private val _closed = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val closed: SharedFlow<Unit> = _closed.asSharedFlow()
 
+    /** The non-recipe inputs, bundled to stay within combine's arity. */
+    private data class Extras(
+        val online: Boolean,
+        val storeOptions: List<String>,
+        val tagOptions: List<String>,
+        val transient: RecipeDetailUiState,
+    )
+
     private val extras = combine(
         connectivityObserver.isOnline,
         shoppingRepository.storeOptions(),
+        shoppingRepository.tagOptions(),
         transient,
-    ) { online, storeOptions, transientState -> Triple(online, storeOptions, transientState) }
+    ) { online, storeOptions, tagOptions, transientState ->
+        Extras(online, storeOptions, tagOptions, transientState)
+    }
 
     val uiState: StateFlow<RecipeDetailUiState> = combine(
         repository.recipe(recipeId),
@@ -85,14 +98,15 @@ class RecipeDetailViewModel @AssistedInject constructor(
         repository.ingredients(recipeId),
         repository.struckLines(recipeId),
         extras,
-    ) { recipe, blocks, ingredients, struck, (online, storeOptions, transientState) ->
-        transientState.copy(
+    ) { recipe, blocks, ingredients, struck, extra ->
+        extra.transient.copy(
             recipe = recipe,
             blocks = blocks,
             ingredients = ingredients,
             struckLines = struck,
-            storeOptions = storeOptions,
-            isOnline = online,
+            storeOptions = extra.storeOptions,
+            tagOptions = extra.tagOptions,
+            isOnline = extra.online,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RecipeDetailUiState())
 
@@ -193,10 +207,16 @@ class RecipeDetailViewModel @AssistedInject constructor(
         }
     }
 
-    /** Save the long-press edit dialog (name, stores, quantity). */
-    fun saveEdit(item: ShoppingItem, name: String, stores: List<String>, quantity: Double?) {
+    /** Save the long-press edit dialog (name, stores, tags, quantity). */
+    fun saveEdit(
+        item: ShoppingItem,
+        name: String,
+        stores: List<String>,
+        tags: List<String>,
+        quantity: Double?,
+    ) {
         viewModelScope.launch {
-            when (shoppingRepository.updateDetails(item.localId, name, stores, quantity)) {
+            when (shoppingRepository.updateDetails(item.localId, name, stores, tags, quantity)) {
                 EditItemResult.SAVED -> Unit
                 EditItemResult.DUPLICATE_NAME ->
                     _messages.emit("An item named \"$name\" already exists")

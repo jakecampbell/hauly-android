@@ -84,7 +84,7 @@ requirement below reproduces the app's behavior exactly.
   business rules (add item, add ingredient) are use-case classes.
 - **R3.6** Settings (integration token, both database IDs, configured flag, cached
   store/tag select options, last-sync timestamp, per-store last-shopped map, manual store
-  chip order) are stored in DataStore Preferences.
+  chip order, group-by-tag view flag, recipe list sort) are stored in DataStore Preferences.
 
 ---
 
@@ -123,7 +123,8 @@ requirement below reproduces the app's behavior exactly.
   with no recipe link live only in Notion and are reachable via remote search and the
   shopped-items browse.
 - **R4.6** Active-list ordering: manually ranked rows first in rank order, then the rest
-  alphabetically (case-insensitive).
+  alphabetically (case-insensitive). This is the ungrouped order; the group-by-tag view
+  (R7.21) replaces it with alphabetical sections and ignores `manual_rank` entirely.
 
 ---
 
@@ -234,13 +235,21 @@ requirement below reproduces the app's behavior exactly.
   (still tracked, though it no longer drives chip order). The chip row's horizontal scroll
   position is never restored across navigation (e.g. switching tabs — by tap or swipe — and back) —
   it always opens scrolled to show the leftmost chip.
-- **R7.3** Each item row shows the name and the needed amount as **"Need: X"**, where X
-  defaults to **1** when quantity is empty. Whole-number quantities render without decimals
-  ("2", not "2.0"). Rows also expose a store-assignment affordance (chip-based picker dialog
-  listing known store options).
+- **R7.3** Each item row shows the name on its first line and the needed amount as
+  **"Need: X"** on the line below it, where X defaults to **1** when quantity is empty.
+  Whole-number quantities render without decimals ("2", not "2.0"). A row awaiting sync
+  appends "pending sync" to that second line. The item's **store list is not shown on the row**
+  — the store view (R7.2) is the answer to "which store", and on "All" the row is deliberately
+  quiet; stores remain visible and editable in the edit dialog (R7.16). Rows also expose a
+  store-assignment affordance (chip-based picker dialog listing known store options) — but
+  **only in the "All" view**: inside a store view the store is a given, so the icon is dropped
+  as noise. Reassigning stores from a store view is still reachable through the edit dialog.
 - **R7.4** Items can be **drag-reordered**. The order is local-only (never synced to Notion),
   persists across restarts and refreshes, and an item loses its manual position when shopped.
   Dragging must be constrained to the active section (cannot drag into the shopped section).
+  Drag-reordering is **unavailable while the group-by-tag view is on** (R7.21) — the handle is
+  gone and the sections sort alphabetically; turning the view off restores the manual order
+  unchanged (grouping never writes `manual_rank`).
 - **R7.5** Checking an item off marks it `Shopped` in Notion (via the queue) and moves it to
   the trip section (R7.6). Pull-to-refresh triggers a full refresh and must work even when
   the list is empty (the empty state must be scrollable so the gesture registers). A snackbar
@@ -322,8 +331,9 @@ requirement below reproduces the app's behavior exactly.
 - **R7.16** **Long-pressing** an item row — on the shopping list or on a recipe's ingredient
   list — opens a shared edit dialog titled **"edit"** for the item's **name**, **stores**
   (chip picker over the known store options plus the item's own stores, with a "New store"
-  free-text field; selected chips render their label in the primary blue), and **quantity**
-  (leaving it empty clears Qty in Notion). Saving queues a normal offline-safe update.
+  free-text field; selected chips render their label in the primary blue), **tags** (R7.22),
+  and **quantity** (leaving it empty clears Qty in Notion). Saving queues a normal
+  offline-safe update. The dialog's content scrolls, so it stays usable on short screens.
   Renaming onto another item's name (case-insensitive) is rejected with a snackbar ("An item
   named … already exists") — names stay unique. Blank names cannot be saved. The dialog also
   has a **Delete** button (error color) that removes the item from the shopping database
@@ -358,6 +368,43 @@ requirement below reproduces the app's behavior exactly.
   scroll the list. Material's `SwipeToDismissBox` is therefore unusable here — it claims every
   horizontal drag on the row and would swallow the pager's gesture across the whole list.
 
+### 7.7 Group by tag
+
+- **R7.21** The active (unshopped) list can be **grouped by the item's `Tags`** (the
+  multi-select of §2.1). A small icon button above the list — top right, below the store chips
+  (R7.2) — toggles the view: primary blue when grouping is on, `onSurfaceVariant` when off (the
+  same on/off signal the selected store chip uses). The flag is **local-only** (DataStore, never
+  synced to Notion), applies to **every store view** at once, and persists across restarts.
+  Each group renders as its **tag name in light gray followed by a horizontal rule running to
+  the right edge**, with that tag's items beneath it. Groups are ordered **alphabetically**, and
+  so are the items within each group. An item carrying **several tags appears once under each of
+  them** (rows are therefore keyed by tag *and* item id — keying by id alone duplicates Compose
+  keys and throws); items with **no tags** collect in an **"other"** group rendered last, so
+  nothing is ever hidden by the view. Grouping applies to the **unshopped list only**: the trip
+  ledger (R7.6) and the shopped browse (R7.12) are untouched, so checking an item off removes it
+  from every group at once and it appears exactly **once** under "Shopped (n)". Every row
+  affordance survives grouping (check off, swipe-to-discard R7.18, long-press edit R7.16, store
+  picker) **except** the drag handle (R7.4) — grouped rows carry a **tag icon in the handle's
+  place** (R7.23), the property the view is arranged by standing in for the one it disables.
+- **R7.23** The grouped row's **tag icon opens a quick tag picker** — "Tags for {item}" — the
+  counterpart to the store picker (R7.3) for a single property, when the full edit dialog
+  (R7.16) is more than the user wants. It offers the same chips and "New tag" field as R7.22,
+  under the same lowercase rule, and saving with nothing selected clears the item's Tags and
+  drops it into the "other" group. Every tag write in the app, from either dialog, passes
+  through one normalization point so the lowercase invariant cannot depend on the entry point.
+- **R7.22** The edit dialog (R7.16) edits the item's **`Tags`**: a chip picker over the known tag
+  options (the cached schema options of R5.8, plus the item's own tags so one just added shows as
+  set before the next refresh) with a **"New tag"** free-text field; selected chips render their
+  label in the primary blue. Tags are forced **lowercase** both while typing and on save —
+  deliberately unlike stores, which are title-cased: the Notion `Tags` options are lowercase, and
+  a title-cased value would create a **second option beside the existing one**. Deselecting a chip
+  removes that tag from the item and clearing them all clears the multi-select in Notion; the
+  dialog never edits the Notion **schema's** option list (that would violate R2.7). Saving queues
+  a normal offline-safe update through the same path as name/stores/quantity — one write, one sync
+  request — and a tag Notion has never seen is created by the page patch itself, surfacing in the
+  cached options after the next refresh. The **add-item dialog does not set tags** (R7.11): new
+  items start untagged and are categorized later from the edit dialog.
+
 ---
 
 ## 8. Recipes — User Experience
@@ -367,6 +414,16 @@ requirement below reproduces the app's behavior exactly.
   **"Recent"** (most recently edited in Notion first, from the page's `last_edited_time`).
   The sort applies to both the Planned section and the main list. The whitespace above the
   "Recipes" title must match the shopping screen's title (same status-bar inset handling).
+  Tapping a sort chip **scrolls the list back to the top** — the order just changed under the
+  user, so their scroll offset no longer means anything. The chosen sort is **local-only
+  (never synced) and persisted** in DataStore, so it survives leaving the tab and restarting
+  the app; "A–Z" is the default only until the user picks. The scroll-to-top is **armed by the
+  tap but performed when the re-sorted rows arrive**, and both halves are load-bearing:
+  scrolling on the tap alone does nothing, because the sort round-trips through DataStore and
+  the arriving order makes `LazyColumn` re-anchor the scroll onto the previously top-most item
+  (it tracks items by key — the same behavior R7.2's chip row works around), undoing it;
+  while scrolling on *every* sort emission would also fire when the pager re-creates the page
+  (R9.1) and discard the scroll position a tab return is meant to preserve.
 - **R8.2** Recipes with `Planned` checked appear in a **"Planned" section pinned above the
   main list** — it stays frozen in place and does not scroll with the list. It renders as a
   rounded-corner box ("card") with a bluish background (`primaryContainer`) and a subtle
