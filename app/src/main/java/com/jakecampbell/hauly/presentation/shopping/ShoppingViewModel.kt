@@ -174,6 +174,14 @@ class ShoppingViewModel @Inject constructor(
         viewModelScope.launch { repository.setShopped(item.localId, false) }
     }
 
+    /** Swipe right on any row: take it off the list without counting it as bought. */
+    fun discard(item: ShoppingItem) {
+        viewModelScope.launch {
+            repository.discard(item.localId)
+            _messages.emit("Discarded \"${item.name}\"")
+        }
+    }
+
     /** "Done" button: end the trip and discard the shopped-items tracking. */
     fun finishTrip() {
         viewModelScope.launch {

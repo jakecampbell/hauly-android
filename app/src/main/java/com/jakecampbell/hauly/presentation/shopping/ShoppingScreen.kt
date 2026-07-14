@@ -1,17 +1,27 @@
 package com.jakecampbell.hauly.presentation.shopping
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.horizontalDrag
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,6 +38,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.RemoveCircleOutline
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material3.Checkbox
@@ -48,6 +59,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -55,7 +67,11 @@ import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -64,9 +80,13 @@ import com.jakecampbell.hauly.domain.model.SyncStatus
 import com.jakecampbell.hauly.presentation.common.EmptyState
 import com.jakecampbell.hauly.presentation.common.OfflineBanner
 import com.jakecampbell.hauly.presentation.common.longPressIris
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableCollectionItemScope
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /**
  * The main screen: the active shopping list, filterable by store, drag-sortable
@@ -133,6 +153,7 @@ fun ShoppingScreen(
                     onStoreClick = { storePickerItem = it },
                     onLongPress = { editItem = it },
                     onOrderPersist = viewModel::persistOrder,
+                    onDiscard = viewModel::discard,
                     onUnshop = viewModel::unshop,
                     onFinishTrip = viewModel::finishTrip,
                     onToggleHistory = viewModel::toggleHistory,
@@ -201,6 +222,7 @@ private fun ReorderableItemList(
     onStoreClick: (ShoppingItem) -> Unit,
     onLongPress: (ShoppingItem) -> Unit,
     onOrderPersist: (List<String>) -> Unit,
+    onDiscard: (ShoppingItem) -> Unit,
     onUnshop: (ShoppingItem) -> Unit,
     onFinishTrip: () -> Unit,
     onToggleHistory: () -> Unit,
@@ -223,18 +245,20 @@ private fun ReorderableItemList(
     ) {
         items(localItems, key = { it.localId }) { item ->
             ReorderableItem(reorderableState, key = item.localId) { isDragging ->
-                Surface(shadowElevation = if (isDragging) 4.dp else 0.dp) {
-                    ShoppingItemRow(
-                        item = item,
-                        onCheckedChange = { onCheckedChange(item, it) },
-                        onStoreClick = { onStoreClick(item) },
-                        onLongPress = { onLongPress(item) },
-                        dragHandle = {
-                            DragHandle(
-                                onDragStopped = { onOrderPersist(localItems.map { it.localId }) },
-                            )
-                        },
-                    )
+                SwipeToDiscardBox(onDiscard = { onDiscard(item) }) {
+                    Surface(shadowElevation = if (isDragging) 4.dp else 0.dp) {
+                        ShoppingItemRow(
+                            item = item,
+                            onCheckedChange = { onCheckedChange(item, it) },
+                            onStoreClick = { onStoreClick(item) },
+                            onLongPress = { onLongPress(item) },
+                            dragHandle = {
+                                DragHandle(
+                                    onDragStopped = { onOrderPersist(localItems.map { it.localId }) },
+                                )
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -270,7 +294,9 @@ private fun ReorderableItemList(
                 }
             }
             items(shoppedItems, key = { "shopped-${it.localId}" }) { item ->
-                ShoppedItemRow(item = item, onClick = { onUnshop(item) })
+                SwipeToDiscardBox(onDiscard = { onDiscard(item) }) {
+                    ShoppedItemRow(item = item, onClick = { onUnshop(item) })
+                }
             }
         }
 
@@ -447,6 +473,109 @@ private fun ShoppedItemRow(item: ShoppingItem, onClick: () -> Unit) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
         )
+    }
+}
+
+/** Past this fraction of the row's width, releasing discards the item. */
+private const val DISCARD_THRESHOLD = 0.4f
+
+/**
+ * Reveals a "Discard" backdrop as [content] is dragged to the right, and fires
+ * [onDiscard] when the drag passes [DISCARD_THRESHOLD] of the row's width.
+ *
+ * Deliberately hand-rolled rather than Material's SwipeToDismissBox: that claims
+ * every horizontal drag on the row, which would swallow the left swipe the home
+ * pager needs to reach Recipes (R9.1). This consumes the gesture only once it is
+ * unambiguously rightward — a leftward or vertical drag is left unconsumed, so
+ * the pager and the list's own scrolling still see it.
+ */
+@Composable
+private fun SwipeToDiscardBox(
+    onDiscard: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val offsetX = remember { Animatable(0f) }
+    var width by remember { mutableIntStateOf(0) }
+    val progress = if (width == 0) 0f else (offsetX.value / width).coerceIn(0f, 1f)
+    val armed = progress >= DISCARD_THRESHOLD
+    // Deepens the moment the drag is far enough to act: "release now".
+    val backdrop by animateColorAsState(
+        targetValue = MaterialTheme.colorScheme.error.copy(alpha = if (armed) 0.30f else 0.16f),
+        label = "discardBackdrop",
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .onSizeChanged { width = it.width }
+            .pointerInput(Unit) {
+                coroutineScope {
+                    val scope = this
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        var overSlop = 0f
+                        val drag = awaitTouchSlopOrCancellation(down.id) { change, over ->
+                            // The direction test is the whole safeguard. Not
+                            // consuming leaves the event for the pager (swipe
+                            // left) or the LazyColumn (vertical scroll).
+                            if (over.x > 0f && abs(over.x) > abs(over.y)) {
+                                overSlop = over.x
+                                change.consume()
+                            }
+                        } ?: return@awaitEachGesture
+
+                        scope.launch { offsetX.snapTo(overSlop.coerceIn(0f, width.toFloat())) }
+                        horizontalDrag(drag.id) { change ->
+                            val target = (offsetX.value + change.positionChange().x)
+                                .coerceIn(0f, width.toFloat())
+                            scope.launch { offsetX.snapTo(target) }
+                            change.consume()
+                        }
+                        scope.launch {
+                            if (offsetX.value >= width * DISCARD_THRESHOLD) {
+                                // Slide clear first; the row then leaves for
+                                // good when Room re-emits the list without it.
+                                offsetX.animateTo(width.toFloat(), tween(durationMillis = 180))
+                                onDiscard()
+                            } else {
+                                offsetX.animateTo(0f)
+                            }
+                        }
+                    }
+                }
+            },
+    ) {
+        if (progress > 0f) {
+            Row(
+                modifier = Modifier
+                    .matchParentSize()
+                    // Fades in over the run-up, full strength once armed.
+                    .alpha((progress / DISCARD_THRESHOLD).coerceAtMost(1f))
+                    .background(backdrop)
+                    .padding(horizontal = 20.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Default.RemoveCircleOutline,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(end = 8.dp).size(20.dp),
+                )
+                Text(
+                    text = "Discard",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+        Box(
+            modifier = Modifier
+                .offset { IntOffset(offsetX.value.roundToInt(), 0) }
+                // Opaque, so the backdrop only shows where the row has moved off.
+                .background(MaterialTheme.colorScheme.background),
+        ) {
+            content()
+        }
     }
 }
 

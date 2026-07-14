@@ -336,6 +336,28 @@ requirement below reproduces the app's behavior exactly.
   is driven by the same press interactions as the click handling, so it tracks real presses
   (including cancellation by scrolling).
 
+### 7.6 Swipe to discard
+
+- **R7.18** **Swiping a row to the right** — on the active list *or* on the trip section
+  (R7.6) — **discards** the item: it is marked `Shopped` in Notion (via the queue) but
+  **never enters the trip ledger** (`trip_shopped = 0`), so it leaves the active list without
+  being counted as part of this trip and is immediately reachable again from the shopped-items
+  browse (R7.12). This is the correction for an item that shouldn't have been added at all.
+  It is *not* a delete (R7.16 owns that) — the Notion page survives, shopped. Discarding
+  clears the item's manual sort position (R7.4) and, unlike a check-off (R7.5), does **not**
+  update the store's last-shopped timestamp: a discard is a correction, not a purchase. A
+  "Discarded …" snackbar confirms it.
+- **R7.19** As the row is dragged right, a **"Discard" backdrop** (a remove icon and the label,
+  in the error color) is revealed behind it, fading in with the drag and deepening once the
+  drag passes the ~40%-of-row-width commit threshold — so the arming point is visible before
+  release. Releasing past the threshold slides the row clear and discards; releasing short of
+  it springs the row back and does nothing.
+- **R7.20** The row swipe must claim a drag **only once it is unambiguously rightward**
+  (rightward-dominant past touch slop) and must leave every other drag unconsumed, so a
+  **left swipe still reaches the pager** (R9.1: swipe left → Recipes) and vertical drags still
+  scroll the list. Material's `SwipeToDismissBox` is therefore unusable here — it claims every
+  horizontal drag on the row and would swallow the pager's gesture across the whole list.
+
 ---
 
 ## 8. Recipes — User Experience
@@ -444,7 +466,9 @@ requirement below reproduces the app's behavior exactly.
 - **R9.1** Bottom navigation with three destinations: Shopping, Recipes, Settings. The two
   **list** tabs (Shopping, Recipes) form a **horizontally swipeable pager** — a left/right
   swipe moves between them, and their bottom-bar items reflect and drive the current page
-  (tapping animates to it). **Settings is not swipeable**: it is a separate route reached only
+  (tapping animates to it). The pager owns horizontal drags: any row-level horizontal gesture
+  inside a page (e.g. swipe-to-discard, R7.20) must claim only its own direction and leave the
+  rest unconsumed, or it will silently disable paging across that whole list. **Settings is not swipeable**: it is a separate route reached only
   by tapping its bottom-bar item; tapping Shopping/Recipes from Settings returns to the pager on
   the chosen tab. The bottom bar shows on both the pager and Settings. Each list tab's ViewModel
   is scoped to the pager's back-stack entry so its data survives swiping; the off-screen page

@@ -126,6 +126,22 @@ class ShoppingRepositoryImpl @Inject constructor(
         syncScheduler.requestSync()
     }
 
+    override suspend fun discard(localId: String) {
+        val item = dao.byLocalId(localId) ?: return
+        dao.upsert(
+            item.copy(
+                shopped = true,
+                // The whole point: shopped, but never in the trip ledger.
+                tripShopped = false,
+                manualRank = null,
+                shoppedAssumed = false,
+                syncStatus = pendingFor(item),
+                updatedAt = System.currentTimeMillis(),
+            )
+        )
+        syncScheduler.requestSync()
+    }
+
     override suspend fun deleteItem(localId: String) {
         val item = dao.byLocalId(localId) ?: return
         if (item.remoteId == null) {

@@ -57,6 +57,16 @@ interface ShoppingRepository {
     suspend fun setShopped(localId: String, shopped: Boolean)
 
     /**
+     * Take an item off the list without it counting as a purchase: it is marked
+     * `Shopped` in Notion (via the queue) but never enters the trip ledger, so
+     * it leaves the active list and goes straight to the shopped-items browse.
+     * For items that shouldn't have been added in the first place. Unlike
+     * [setShopped] this leaves the store's last-shopped timestamp alone — a
+     * discard is a correction, not a trip.
+     */
+    suspend fun discard(localId: String)
+
+    /**
      * Edit an item's properties from the edit dialog (long-press). A null
      * [quantity] clears the Qty in Notion. Fails with [EditItemResult.DUPLICATE_NAME]
      * when [name] is already used by a different item (names are unique,
