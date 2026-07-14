@@ -205,14 +205,22 @@ class RecipeRepositoryImpl @Inject constructor(
         recipeId: String,
         name: String,
         quantity: Double?,
+        suggestion: ShoppingItem?,
     ): AddItemResult {
         val now = System.currentTimeMillis()
         val existing = itemDao.byName(name)
 
         if (existing == null) {
             // Not cached: create locally with the Grocery store and link the
-            // recipe relation. If the name already exists in Notion (a shopped,
-            // evicted item), the create-flush merges into it instead of duplicating.
+            // recipe relation. Here [suggestion] is always a remote-only match (a
+            // cached one would have been found by byName). If the name already
+            // exists in Notion (a shopped, evicted item), the create-flush merges
+            // into it instead of duplicating — so we seed the row with the
+            // suggestion's shopped state to avoid un-shopping that page on merge,
+            // and seed the refs from the suggestion's known recipe links (plus
+            // this recipe) so a later relation push doesn't wipe them. A relation
+            // push sends the local ref set as the page's *complete* relation.
+            val shopped = suggestion?.shopped == true
             val localId = UUID.randomUUID().toString()
             itemDao.upsert(
                 ShoppingItemEntity(
@@ -222,23 +230,26 @@ class RecipeRepositoryImpl @Inject constructor(
                     stores = listOf(RecipeRepository.DEFAULT_INGREDIENT_STORE),
                     tags = emptyList(),
                     quantity = quantity,
-                    shopped = false,
+                    shopped = shopped,
                     syncStatus = SyncStatus.PENDING_CREATE,
                     updatedAt = now,
                 )
             )
-            itemDao.upsertRefs(listOf(RecipeItemCrossRef(recipeId, localId)))
+            val refRecipeIds = (suggestion?.recipeIds.orEmpty() + recipeId).distinct()
+            itemDao.upsertRefs(refRecipeIds.map { RecipeItemCrossRef(it, localId) })
             syncScheduler.requestSync()
-            return AddItemResult.CREATED
+            return if (shopped) AddItemResult.ADDED_SHOPPED else AddItemResult.CREATED
         }
 
         val alreadyLinked = itemDao.ref(recipeId, existing.localId) != null
         itemDao.upsertRefs(listOf(RecipeItemCrossRef(recipeId, existing.localId)))
 
+        // Preserve the item's current shopped state: an ingredient added from a
+        // recipe keeps whatever shopped status it has, so a shopped item stays
+        // crossed out in the recipe's list rather than being pulled back onto
+        // the active list. (The shopping-list add path still reactivates.)
         val grocery = RecipeRepository.DEFAULT_INGREDIENT_STORE
         val updated = existing.copy(
-            shopped = false,
-            tripShopped = false,
             stores = if (existing.stores.any { it.equals(grocery, ignoreCase = true) }) {
                 existing.stores
             } else {
@@ -253,7 +264,7 @@ class RecipeRepositoryImpl @Inject constructor(
             syncScheduler.requestSync()
         }
         return when {
-            existing.shopped -> AddItemResult.REACTIVATED
+            !alreadyLinked && existing.shopped -> AddItemResult.ADDED_SHOPPED
             !alreadyLinked -> AddItemResult.CREATED
             else -> AddItemResult.ALREADY_ACTIVE
         }

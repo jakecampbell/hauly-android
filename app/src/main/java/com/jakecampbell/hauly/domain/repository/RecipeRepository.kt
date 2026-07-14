@@ -71,12 +71,23 @@ interface RecipeRepository {
     suspend fun setPlanned(recipeId: String, planned: Boolean)
 
     /**
-     * Add an ingredient to the shopping list from a recipe. Creates the item
-     * and links the relation if it doesn't exist; otherwise reactivates it so
-     * it shows on the active list. Either way the [DEFAULT_INGREDIENT_STORE]
-     * store is applied, and [quantity] (when provided) replaces the item's.
+     * Add an ingredient to the shopping list from a recipe, linking the relation.
+     * Unlike the shopping-list add path, this **preserves the item's shopped
+     * state** — a shopped item stays shopped (crossed out) rather than being
+     * pulled back onto the active list. For an existing (cached) item the local
+     * row's state wins; for a new row the picked [suggestion] seeds both its
+     * shopped state (so a shopped item matched only via remote search — evicted
+     * from the cache — is recreated shopped) and its recipe refs (so a later
+     * relation push doesn't wipe links the suggestion already carried). Either
+     * way the [DEFAULT_INGREDIENT_STORE] store is applied, and [quantity] (when
+     * provided) replaces the item's.
      */
-    suspend fun addIngredient(recipeId: String, name: String, quantity: Double?): AddItemResult
+    suspend fun addIngredient(
+        recipeId: String,
+        name: String,
+        quantity: Double?,
+        suggestion: ShoppingItem? = null,
+    ): AddItemResult
 
     companion object {
         /** Store automatically applied to ingredients added from a recipe. */

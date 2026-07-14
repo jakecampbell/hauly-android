@@ -211,21 +211,21 @@ class RecipeDetailViewModel @Inject constructor(
     fun selectSuggestion(item: ShoppingItem) = addController.selectSuggestion(item)
 
     /**
-     * Confirm the add dialog: create or reactivate the item with the Grocery
-     * store and link it to this recipe. A remote-only suggestion goes through
-     * the same path — the create-flush merges by name, so nothing duplicates.
+     * Confirm the add dialog: create the item (or link an existing one) with the
+     * Grocery store and attach it to this recipe. An existing item keeps its
+     * current shopped state — a shopped item stays crossed out rather than being
+     * pulled back onto the active list. A remote-only suggestion goes through the
+     * same path — the create-flush merges by name, so nothing duplicates.
      */
     fun confirmAdd() {
         val input = addController.consumeInput() ?: return
         viewModelScope.launch {
-            val result = addIngredientToList(recipeId, input.name, input.quantity)
-            val reactivated = result == AddItemResult.REACTIVATED ||
-                (result == AddItemResult.CREATED && input.selected?.shopped == true)
-            when {
-                result == AddItemResult.ALREADY_ACTIVE ->
+            when (addIngredientToList(recipeId, input.name, input.quantity, input.selected)) {
+                AddItemResult.ALREADY_ACTIVE ->
                     _messages.emit("\"${input.name}\" is already on the list")
 
-                reactivated -> _messages.emit("\"${input.name}\" is back on the list")
+                AddItemResult.ADDED_SHOPPED ->
+                    _messages.emit("Added \"${input.name}\" — it's already shopped")
 
                 else -> _messages.emit("Added \"${input.name}\" to the list")
             }

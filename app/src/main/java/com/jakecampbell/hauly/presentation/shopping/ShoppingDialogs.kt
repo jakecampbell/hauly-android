@@ -22,6 +22,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,6 +30,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.jakecampbell.hauly.domain.model.ShoppingItem
@@ -50,6 +53,11 @@ fun AddItemDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
+    val nameFocus = remember { FocusRequester() }
+    // Focus the Name field on open and again after each add (submitTick bumps),
+    // so the user can keep adding items without re-tapping the field.
+    LaunchedEffect(state.submitTick) { nameFocus.requestFocus() }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("haul") },
@@ -78,7 +86,9 @@ fun AddItemDialog(
                                 Text("New item — will be created in Notion")
                         }
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(nameFocus),
                 )
 
                 if (state.suggestions.isNotEmpty()) {
@@ -117,10 +127,12 @@ fun AddItemDialog(
             }
         },
         confirmButton = {
+            // "Add" keeps the dialog open (fields clear) for rapid multi-add;
+            // "Done" is the only thing that closes it.
             TextButton(onClick = onConfirm, enabled = state.canConfirm) { Text("Add") }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text("Done") }
         },
     )
 }

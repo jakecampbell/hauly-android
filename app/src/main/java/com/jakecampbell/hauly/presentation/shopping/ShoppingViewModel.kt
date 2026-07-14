@@ -290,9 +290,10 @@ class ShoppingViewModel @Inject constructor(
                 _messages.emit("\"${selected.name}\" is back on the list")
             } else {
                 when (addItemToShoppingList(input.name, input.quantity, store)) {
-                    AddItemResult.CREATED -> _messages.emit("Added \"${input.name}\"")
                     AddItemResult.REACTIVATED -> _messages.emit("\"${input.name}\" is back on the list")
                     AddItemResult.ALREADY_ACTIVE -> _messages.emit("\"${input.name}\" is already on the list")
+                    // ADDED_SHOPPED is recipe-only; the shopping path never emits it.
+                    else -> _messages.emit("Added \"${input.name}\"")
                 }
             }
         }

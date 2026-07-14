@@ -1,5 +1,6 @@
 package com.jakecampbell.hauly.data.repository
 
+import com.jakecampbell.hauly.data.local.RecipeItemCrossRef
 import com.jakecampbell.hauly.data.local.ShoppingItemDao
 import com.jakecampbell.hauly.data.local.ShoppingItemEntity
 import com.jakecampbell.hauly.data.remote.NotionRemoteDataSource
@@ -239,6 +240,15 @@ class ShoppingRepositoryImpl @Inject constructor(
                 updatedAt = now,
             )
         )
+        // A row materialized from a remote-only item must seed its recipe refs
+        // from the item's known links: a relation push sends the local ref set as
+        // the page's *complete* relation, so an unseeded row would wipe every
+        // link the next flush. Only when it wasn't already cached — a cached
+        // row's refs came from a refresh and are authoritative, and unioning
+        // would resurrect a link removed in Notion.
+        if (cached == null && item.recipeIds.isNotEmpty()) {
+            dao.upsertRefs(item.recipeIds.map { RecipeItemCrossRef(it, base.localId) })
+        }
         syncScheduler.requestSync()
     }
 

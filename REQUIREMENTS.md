@@ -151,6 +151,17 @@ requirement below reproduces the app's behavior exactly.
   timestamp.
 - **R5.9** A sync must be scheduled on every app start (when configured) so the cache
   repopulates itself after a destructive database wipe or fresh install.
+- **R5.10** **Relation-completeness invariant.** A relation push (both create and update)
+  sends the local `recipe_item_refs` set for a row as that page's **complete** `Recipes`
+  relation — an empty set clears every link. Therefore any row **materialized locally from a
+  remote-only item** (a shopped, evicted item re-added via search or the shopped-items browse,
+  or a recipe ingredient add) must **seed its refs from that item's known `recipeIds`** (unioned
+  with the recipe being added, for the recipe path) at materialization time. Otherwise the next
+  flush, treating the incomplete local set as authoritative, wipes links Notion already had.
+  This only bites in the stale-cache window (R4.5 keeps recipe-linked items cached, so a cache
+  miss normally means no links): a link added in Notion the cache hasn't refreshed yet. Rows
+  that were **already cached** keep the refs a refresh gave them (authoritative — never union a
+  remote item's links into them, or a link removed in Notion would be resurrected).
 - **R5.10** Connectivity is observed via `ConnectivityManager`; the UI exposes online/offline
   state and the count of pending edits.
 - **R5.11** **Deletion** is offline-safe: a deleted item is marked `PENDING_DELETE`, which
@@ -263,6 +274,11 @@ requirement below reproduces the app's behavior exactly.
   - If the item is already on the active list, tell the user instead of duplicating.
   - Each outcome emits a distinct snackbar ("Added …", "… is back on the list",
     "… is already on the list").
+  - **Add keeps the dialog open**: after each add the Name/Quantity fields and any suggestion
+    selection are cleared (the "Add" button disables until a new name is typed) so the user can
+    add several items in one sitting. Focus returns to the **Name** field on open and after
+    every add. The dialog is closed only by the **"Done"** button (the dismiss action) or by
+    dismissing it. This applies to every add dialog, including the recipe ingredient add (R8.5).
 
 ### 7.4 Shopped-items browse (tap to re-add)
 
@@ -351,9 +367,13 @@ requirement below reproduces the app's behavior exactly.
   to the recipe via the relation and **automatically applies the "Grocery" store** (new items
   get it as their store; existing items get it appended case-insensitively) — the dialog
   shows "Will be tagged for Grocery". An entered quantity is applied; without one, an
-  existing item's quantity is kept. Existing items are reactivated (un-shopped, trip flag
-  cleared) rather than duplicated; a remote-only suggestion goes through the same create path
-  and relies on the create-with-merge flush (R5.4) to avoid duplicates. Blank names are
+  existing item's quantity is kept. Existing items are linked (not duplicated) and **keep
+  their current shopped state** — unlike the shopping-list add path (R7.11), the recipe path
+  never un-shops an item, so an already-shopped item stays crossed out in the recipe's list
+  (per R4.5/R8.3) and its add emits a distinct "already shopped" snackbar. A remote-only
+  suggestion (a shopped item evicted from the cache, found via search) goes through the same
+  create path — its shopped state seeds the new row so the create-with-merge flush (R5.4)
+  re-links it **without un-shopping** the Notion page and without duplicating. Blank names are
   rejected.
 - **R8.6** Recipe screens include loading and error states like every other screen.
 - **R8.7** **Editable Ingredients & Instructions.** Both are stored as newline-separated text

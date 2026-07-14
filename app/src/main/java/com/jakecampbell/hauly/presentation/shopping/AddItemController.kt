@@ -33,6 +33,11 @@ data class AddItemUiState(
     val selected: ShoppingItem? = null,
     val quantityText: String = "",
     val isSearchingRemote: Boolean = false,
+    /**
+     * Bumped each time an item is added (and once when the dialog opens) so the
+     * UI can move focus back to the Name field for rapid multi-add.
+     */
+    val submitTick: Int = 0,
 ) {
     val canConfirm: Boolean get() = query.isNotBlank()
 }
@@ -63,6 +68,7 @@ class AddItemController(
         val quantityText: String = "",
         val remoteMatches: List<ShoppingItem> = emptyList(),
         val isSearchingRemote: Boolean = false,
+        val submitTick: Int = 0,
     )
 
     private val addDialog = MutableStateFlow(AddDialog())
@@ -94,6 +100,7 @@ class AddItemController(
             selected = dialog.selected,
             quantityText = dialog.quantityText,
             isSearchingRemote = dialog.isSearchingRemote,
+            submitTick = dialog.submitTick,
         )
     }.stateIn(scope, SharingStarted.WhileSubscribed(5_000), AddItemUiState())
 
@@ -158,14 +165,18 @@ class AddItemController(
         }
     }
 
-    /** Read the confirmed input and close the dialog; null when there is nothing to add. */
+    /**
+     * Read the confirmed input; null when there is nothing to add. The dialog
+     * stays **open** with its fields cleared so the user can add several items in
+     * a row — it's dismissed explicitly via "Done" ([dismiss]).
+     */
     fun consumeInput(): ConfirmedAdd? {
         val dialog = addDialog.value
         val name = dialog.query.trim()
         if (name.isEmpty()) return null
         val quantity = dialog.quantityText.trim().toDoubleOrNull()
         val selected = dialog.selected?.takeIf { it.name.equals(name, ignoreCase = true) }
-        addDialog.value = AddDialog()
+        addDialog.value = AddDialog(visible = true, submitTick = dialog.submitTick + 1)
         return ConfirmedAdd(name = name, quantity = quantity, selected = selected)
     }
 }
