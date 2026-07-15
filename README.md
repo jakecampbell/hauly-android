@@ -1,3 +1,5 @@
+<img src="docs/icon.png" alt="Hauly icon" width="96" height="96" />
+
 # Hauly
 
 A fast, dark, offline-first Android app for managing shopping lists and recipes
@@ -59,7 +61,7 @@ edits queued locally and synced to your Notion workspace in the background.
 ./gradlew assembleRelease   # R8-minified release APK (needs your signing config)
 ```
 
-Requires JDK 17+ and Android SDK 36 (`local.properties` points at the SDK).
+Requires JDK 17+ and Android SDK 37 (`local.properties` points at the SDK).
 
 ## Module map
 
