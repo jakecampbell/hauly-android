@@ -555,6 +555,12 @@ requirement below reproduces the app's behavior exactly.
   canvas). The same artwork appears as the logo on the onboarding screen.
 - **R9.5** Every new Compose screen must model loading, empty, and error states explicitly;
   user-visible failures surface as snackbars or inline error views, never silently.
+- **R9.6** Portrait orientation only, matching the single-handed bottom-nav design (R1). The
+  lock is declared once via `android:screenOrientation="portrait"` on `MainActivity` (the app's
+  only activity). Note that apps targeting SDK 36 have orientation restrictions ignored on
+  large screens (smallest width >= 600 dp), so the lock is effective on phones only; state
+  that survives rotation (e.g. the open-recipe id, R8.1) must still be preserved, since
+  process death and large-screen rotation can both still occur.
 
 ---
 
