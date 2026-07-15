@@ -1,3 +1,5 @@
+<img src="docs/icon.png" alt="Hauly icon" width="96" height="96" />
+
 # Hauly
 
 A fast, dark, offline-first Android app for managing shopping lists and recipes
