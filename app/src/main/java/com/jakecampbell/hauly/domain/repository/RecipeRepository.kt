@@ -98,6 +98,19 @@ interface RecipeRepository {
         suggestion: ShoppingItem? = null,
     ): AddItemResult
 
+    /**
+     * Unlink an ingredient from a recipe: the item stays on the shopping list
+     * with its stores, quantity and shopped state untouched, and only the
+     * `Recipes` relation loses this recipe. Neither a delete (which archives the
+     * Notion page) nor a discard (which marks the item shopped) — purely the
+     * association. The item's other recipe links survive.
+     *
+     * Offline-safe: the local ref is dropped immediately and the item queued;
+     * the sync engine pushes the remaining ref set as the page's complete
+     * relation, so the recipe drops off it on the next flush.
+     */
+    suspend fun removeIngredient(recipeId: String, itemLocalId: String)
+
     companion object {
         /** Store automatically applied to ingredients added from a recipe. */
         const val DEFAULT_INGREDIENT_STORE = "Grocery"

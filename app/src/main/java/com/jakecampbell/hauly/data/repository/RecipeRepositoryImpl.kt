@@ -280,4 +280,19 @@ class RecipeRepositoryImpl @Inject constructor(
             else -> AddItemResult.ALREADY_ACTIVE
         }
     }
+
+    override suspend fun removeIngredient(recipeId: String, itemLocalId: String) {
+        val item = itemDao.byLocalId(itemLocalId) ?: return
+        if (itemDao.ref(recipeId, itemLocalId) == null) return
+
+        itemDao.deleteRef(recipeId, itemLocalId)
+        // The item's own properties are untouched; queueing it is what gets the
+        // shortened ref set pushed, since the flush sends the local refs as the
+        // page's complete relation. A row with no page id yet stays
+        // PENDING_CREATE so its create carries the reduced set.
+        val status = if (item.remoteId == null) SyncStatus.PENDING_CREATE
+        else SyncStatus.PENDING_UPDATE
+        itemDao.upsert(item.copy(syncStatus = status, updatedAt = System.currentTimeMillis()))
+        syncScheduler.requestSync()
+    }
 }

@@ -221,20 +221,29 @@ requirement below reproduces the app's behavior exactly.
 ### 7.1 Main list
 
 - **R7.1** Screen title: **"Get your haul! :)"**.
-- **R7.2** A row of store filter chips above the list. Chips are in a **manually chosen order**:
+- **R7.2** A row of store filter chips above the list, **sharing its line with the group-by-tag
+  toggle** (R7.21): the chips scroll within the width left of that toggle rather than the full
+  screen width, which keeps the controls to a single line. Chips are in a **manually chosen order**:
   long-pressing a chip drags it to a new position (a plain tap still selects it); the order is
   **local-only** (stored in DataStore Preferences, never synced to Notion) and persists across
   restarts. A store not yet manually placed (new from the Notion schema, or first seen on an
   item) is appended at the end of the manually ordered stores. The **"All" chip always sits at
   the end** of the whole row and is never draggable. Selecting a store filters items to those
   whose store list contains it (case-insensitive). "All" shows everything, including store-less
-  items. The selected chip's label (including "All") renders in the primary blue. On opening the
+  items. Each store chip also carries a **count** of the items on its list (R7.24). The selected
+  chip's label (including "All") renders in the primary blue. On opening the
   screen, the **leftmost store is selected by default** (i.e. the first store in the manual
   order) rather than "All"; the default never overrides a choice the user has already made in
   that session. The store a check-off happens in updates that store's last-shopped timestamp
   (still tracked, though it no longer drives chip order). The chip row's horizontal scroll
   position is never restored across navigation (e.g. switching tabs — by tap or swipe — and back) —
-  it always opens scrolled to show the leftmost chip.
+  it always opens scrolled to show the leftmost chip. Chips approaching the toggle **fade out
+  into the background** over the row's last ~36 dp — a gradient to the background color, so they
+  dissolve into the screen rather than sliding under a visible scrim. The fade must never cost
+  the user a chip: the row carries that same width as **end padding**, so scrolling to the end
+  brings the last chip ("All") to rest fully clear of the gradient, at full opacity and
+  selectable. The gradient is **drawn over** the row, never laid out in it, so it intercepts
+  neither taps nor the chip-reorder drag.
 - **R7.3** Each item row shows the name on its first line and the needed amount as
   **"Need: X"** on the line below it, where X defaults to **1** when quantity is empty.
   Whole-number quantities render without decimals ("2", not "2.0"). A row awaiting sync
@@ -367,12 +376,17 @@ requirement below reproduces the app's behavior exactly.
   **left swipe still reaches the pager** (R9.1: swipe left → Recipes) and vertical drags still
   scroll the list. Material's `SwipeToDismissBox` is therefore unusable here — it claims every
   horizontal drag on the row and would swallow the pager's gesture across the whole list.
+  This direction test is the entire safeguard, so it lives in **one shared, direction-parameterized
+  swipe component** used by both row-swipe surfaces (discard here, unlink on the recipe detail
+  R8.14) rather than a copy per screen that could drift. A row swipe may only ever use the
+  direction the pager does not need on that page.
 
 ### 7.7 Group by tag
 
 - **R7.21** The active (unshopped) list can be **grouped by the item's `Tags`** (the
-  multi-select of §2.1). A small icon button above the list — top right, below the store chips
-  (R7.2) — toggles the view: primary blue when grouping is on, `onSurfaceVariant` when off (the
+  multi-select of §2.1). A small icon button at the **right end of the store chip row** (R7.2) —
+  sharing that line rather than taking one of its own, so the list keeps the vertical space —
+  toggles the view: primary blue when grouping is on, `onSurfaceVariant` when off (the
   same on/off signal the selected store chip uses). The flag is **local-only** (DataStore, never
   synced to Notion), applies to **every store view** at once, and persists across restarts.
   Each group renders as its **tag name in light gray followed by a horizontal rule running to
@@ -404,6 +418,20 @@ requirement below reproduces the app's behavior exactly.
   request — and a tag Notion has never seen is created by the page patch itself, surfacing in the
   cached options after the next refresh. The **add-item dialog does not set tags** (R7.11): new
   items start untagged and are categorized later from the edit dialog.
+
+### 7.8 Store chip counts
+
+- **R7.24** Each **store** chip (R7.2) shows, after the store name, **how many active items are
+  on that store's list** — so the row answers "how much is left at each store" without visiting
+  them. The number is what selecting that chip would show: it counts the **unshopped** items
+  carrying that store (case-insensitively, as the filter itself matches), and is computed from
+  the **unfiltered** active list, so it does not change with the store in view. Shopped items and
+  the trip ledger (R7.6) are excluded, so checking an item off decrements its stores' counts
+  immediately, as does a discard (R7.18) or a delete (R7.16); an item in several stores counts
+  once in **each**. A store with **nothing on its list shows no number** — a bare chip means
+  empty. The count is rendered smaller and in `onSurfaceVariant`, subordinate to the name, which
+  keeps its own selected/unselected color (R7.2). The **"All" chip carries no count**: it is a
+  view, not a store. Counts are derived state — no schema, no Notion property, nothing synced.
 
 ---
 
@@ -444,7 +472,8 @@ requirement below reproduces the app's behavior exactly.
   formatting as the shopping list); tapping the row toggles the item between shopped and
   un-shopped, with shopped rows crossed out and marked by a check icon (checking off adds the
   item to the shopping screen's trip ledger, exactly like checking it off there). Long-pressing
-  an ingredient opens the shared edit dialog (R7.16).
+  an ingredient opens the shared edit dialog (R7.16); swiping it **left** unlinks it from the
+  recipe (R8.14).
 - **R8.4** The recipe's legacy Notion page **body** is **read-only**, fetched via the paginated
   block-children endpoint, cached locally, and rendered per block type (paragraphs, headings,
   bulleted/numbered lists, to-dos, quotes, dividers, etc.); unsupported types degrade
@@ -515,6 +544,23 @@ requirement below reproduces the app's behavior exactly.
   keyboard's action key ("Search") also dismisses the keyboard without clearing the query, so
   the user can always leave the field. Search is a purely local filter over the cached rows (no
   Notion query).
+- **R8.14** **Swipe to unlink an ingredient.** Swiping a Shopping row on the recipe detail
+  **to the left** removes that item from **this recipe's** `Shopping` relation. It is purely a
+  disassociation: the item stays on the shopping list with its stores, quantity, tags and
+  shopped state untouched, its links to *other* recipes survive, and its Notion page is neither
+  archived (R7.16 owns delete) nor marked shopped (R7.18 owns discard). A "Removed … from this
+  recipe" snackbar confirms it; there is no undo affordance, since re-linking is a few taps
+  through the add dialog (R8.5). Offline-safe: the local relation is dropped immediately and
+  the item queued, and because a flush sends the item's local ref set as the page's **complete**
+  relation (R5.10), the next sync drops the recipe from the Notion relation with no extra
+  payload. Once unlinked, a shopped item is no longer pinned in the cache by the relation and
+  becomes evictable on the next refresh (R4.5) — reachable again from the shopped-items browse
+  (R7.12). The gesture is the **mirror image** of swipe-to-discard: same ~40% commit threshold,
+  same fade-in-and-deepen backdrop and spring-back (R7.19), with a "Remove" label and unlink
+  icon revealed on the **right** as the row travels left. Left is available on this surface
+  precisely because Recipes is the pager's **last** page (R9.1), so nothing pages to its left;
+  the right swipe (back to Shopping) must still get through, which is what R7.20's direction
+  discipline guarantees.
 
 ---
 
@@ -525,7 +571,10 @@ requirement below reproduces the app's behavior exactly.
   swipe moves between them, and their bottom-bar items reflect and drive the current page
   (tapping animates to it). The pager owns horizontal drags: any row-level horizontal gesture
   inside a page (e.g. swipe-to-discard, R7.20) must claim only its own direction and leave the
-  rest unconsumed, or it will silently disable paging across that whole list. **Settings is not swipeable**: it is a separate route reached only
+  rest unconsumed, or it will silently disable paging across that whole list. Which direction a
+  page has spare follows from its position: Shopping is the first page, so rows there may claim
+  **right** (R7.18); Recipes is the last, so rows on the recipe detail may claim **left**
+  (R8.14). **Settings is not swipeable**: it is a separate route reached only
   by tapping its bottom-bar item; tapping Shopping/Recipes from Settings returns to the pager on
   the chosen tab. The bottom bar shows on both the pager and Settings. Each list tab's ViewModel
   is scoped to the pager's back-stack entry so its data survives swiping; the off-screen page

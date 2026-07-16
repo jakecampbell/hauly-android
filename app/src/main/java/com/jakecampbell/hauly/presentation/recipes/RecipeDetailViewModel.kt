@@ -207,6 +207,17 @@ class RecipeDetailViewModel @AssistedInject constructor(
         }
     }
 
+    /**
+     * Swipe an ingredient row left: unlink it from this recipe. The item itself
+     * stays on the shopping list — this only breaks the association.
+     */
+    fun removeFromRecipe(item: ShoppingItem) {
+        viewModelScope.launch {
+            repository.removeIngredient(recipeId, item.localId)
+            _messages.emit("Removed \"${item.name}\" from this recipe")
+        }
+    }
+
     /** Save the long-press edit dialog (name, stores, tags, quantity). */
     fun saveEdit(
         item: ShoppingItem,

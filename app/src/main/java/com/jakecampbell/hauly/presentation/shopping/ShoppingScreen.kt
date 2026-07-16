@@ -1,26 +1,16 @@
 package com.jakecampbell.hauly.presentation.shopping
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalIndication
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
-import androidx.compose.foundation.gestures.horizontalDrag
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -60,7 +50,6 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -68,11 +57,11 @@ import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
-import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -80,14 +69,12 @@ import com.jakecampbell.hauly.domain.model.ShoppingItem
 import com.jakecampbell.hauly.domain.model.SyncStatus
 import com.jakecampbell.hauly.presentation.common.EmptyState
 import com.jakecampbell.hauly.presentation.common.OfflineBanner
+import com.jakecampbell.hauly.presentation.common.SwipeDirection
+import com.jakecampbell.hauly.presentation.common.SwipeToRevealBox
 import com.jakecampbell.hauly.presentation.common.longPressIris
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableCollectionItemScope
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
-import kotlin.math.abs
-import kotlin.math.roundToInt
 
 /**
  * The main screen: the active shopping list, filterable by store, drag-sortable
@@ -130,17 +117,25 @@ fun ShoppingScreen(
                 OfflineBanner(pendingEdits = state.pendingEdits)
             }
 
-            StoreFilterRow(
-                options = state.storeOptions,
-                selected = state.selectedStore,
-                onSelect = viewModel::selectStore,
-                onOrderPersist = viewModel::persistStoreOrder,
-            )
-
-            GroupToggleRow(
-                enabled = state.groupByTags,
-                onToggle = viewModel::toggleGrouping,
-            )
+            // The chips and the group toggle share one row: the chips take what
+            // room is left of the toggle, and scroll under a fade to reach it.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                StoreFilterRow(
+                    options = state.storeOptions,
+                    counts = state.storeCounts,
+                    selected = state.selectedStore,
+                    onSelect = viewModel::selectStore,
+                    onOrderPersist = viewModel::persistStoreOrder,
+                    modifier = Modifier.weight(1f),
+                )
+                GroupToggleButton(
+                    enabled = state.groupByTags,
+                    onToggle = viewModel::toggleGrouping,
+                )
+            }
 
             PullToRefreshBox(
                 isRefreshing = state.isRefreshing,
@@ -413,25 +408,24 @@ private fun TagGroupHeader(name: String) {
 }
 
 /**
- * The group-by-tag toggle, under the store chips: blue when grouping is on,
- * gray when off — the same on/off signal the selected store chip uses.
+ * The group-by-tag toggle, at the right end of the store chip row: blue when
+ * grouping is on, gray when off — the same on/off signal the selected store
+ * chip uses.
  */
 @Composable
-private fun GroupToggleRow(enabled: Boolean, onToggle: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-        horizontalArrangement = Arrangement.End,
+private fun GroupToggleButton(enabled: Boolean, onToggle: () -> Unit) {
+    IconButton(
+        onClick = onToggle,
+        modifier = Modifier.padding(start = 4.dp, end = 12.dp).size(32.dp),
     ) {
-        IconButton(onClick = onToggle, modifier = Modifier.size(32.dp)) {
-            Icon(
-                imageVector = Icons.Default.Category,
-                contentDescription = if (enabled) "Show items ungrouped"
-                else "Group items by tag",
-                tint = if (enabled) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp),
-            )
-        }
+        Icon(
+            imageVector = Icons.Default.Category,
+            contentDescription = if (enabled) "Show items ungrouped"
+            else "Group items by tag",
+            tint = if (enabled) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp),
+        )
     }
 }
 
@@ -601,107 +595,23 @@ private fun ShoppedItemRow(item: ShoppingItem, onClick: () -> Unit) {
     }
 }
 
-/** Past this fraction of the row's width, releasing discards the item. */
-private const val DISCARD_THRESHOLD = 0.4f
-
 /**
- * Reveals a "Discard" backdrop as [content] is dragged to the right, and fires
- * [onDiscard] when the drag passes [DISCARD_THRESHOLD] of the row's width.
- *
- * Deliberately hand-rolled rather than Material's SwipeToDismissBox: that claims
- * every horizontal drag on the row, which would swallow the left swipe the home
- * pager needs to reach Recipes (R9.1). This consumes the gesture only once it is
- * unambiguously rightward — a leftward or vertical drag is left unconsumed, so
- * the pager and the list's own scrolling still see it.
+ * Swiping a row right discards the item (R7.18). Right is the direction the
+ * pager doesn't need here: the shopping page is its first, so only the left
+ * swipe (to Recipes) has to survive.
  */
 @Composable
 private fun SwipeToDiscardBox(
     onDiscard: () -> Unit,
     content: @Composable () -> Unit,
 ) {
-    val offsetX = remember { Animatable(0f) }
-    var width by remember { mutableIntStateOf(0) }
-    val progress = if (width == 0) 0f else (offsetX.value / width).coerceIn(0f, 1f)
-    val armed = progress >= DISCARD_THRESHOLD
-    // Deepens the moment the drag is far enough to act: "release now".
-    val backdrop by animateColorAsState(
-        targetValue = MaterialTheme.colorScheme.error.copy(alpha = if (armed) 0.30f else 0.16f),
-        label = "discardBackdrop",
+    SwipeToRevealBox(
+        direction = SwipeDirection.RIGHT,
+        icon = Icons.Default.RemoveCircleOutline,
+        label = "Discard",
+        onTriggered = onDiscard,
+        content = content,
     )
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .onSizeChanged { width = it.width }
-            .pointerInput(Unit) {
-                coroutineScope {
-                    val scope = this
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        var overSlop = 0f
-                        val drag = awaitTouchSlopOrCancellation(down.id) { change, over ->
-                            // The direction test is the whole safeguard. Not
-                            // consuming leaves the event for the pager (swipe
-                            // left) or the LazyColumn (vertical scroll).
-                            if (over.x > 0f && abs(over.x) > abs(over.y)) {
-                                overSlop = over.x
-                                change.consume()
-                            }
-                        } ?: return@awaitEachGesture
-
-                        scope.launch { offsetX.snapTo(overSlop.coerceIn(0f, width.toFloat())) }
-                        horizontalDrag(drag.id) { change ->
-                            val target = (offsetX.value + change.positionChange().x)
-                                .coerceIn(0f, width.toFloat())
-                            scope.launch { offsetX.snapTo(target) }
-                            change.consume()
-                        }
-                        scope.launch {
-                            if (offsetX.value >= width * DISCARD_THRESHOLD) {
-                                // Slide clear first; the row then leaves for
-                                // good when Room re-emits the list without it.
-                                offsetX.animateTo(width.toFloat(), tween(durationMillis = 180))
-                                onDiscard()
-                            } else {
-                                offsetX.animateTo(0f)
-                            }
-                        }
-                    }
-                }
-            },
-    ) {
-        if (progress > 0f) {
-            Row(
-                modifier = Modifier
-                    .matchParentSize()
-                    // Fades in over the run-up, full strength once armed.
-                    .alpha((progress / DISCARD_THRESHOLD).coerceAtMost(1f))
-                    .background(backdrop)
-                    .padding(horizontal = 20.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = Icons.Default.RemoveCircleOutline,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(end = 8.dp).size(20.dp),
-                )
-                Text(
-                    text = "Discard",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-        }
-        Box(
-            modifier = Modifier
-                .offset { IntOffset(offsetX.value.roundToInt(), 0) }
-                // Opaque, so the backdrop only shows where the row has moved off.
-                .background(MaterialTheme.colorScheme.background),
-        ) {
-            content()
-        }
-    }
 }
 
 @Composable
@@ -717,15 +627,29 @@ private fun ReorderableCollectionItemScope.DragHandle(onDragStopped: () -> Unit)
 }
 
 /**
+ * How much of the chip row's right edge dissolves into the background, and the
+ * end padding that buys the last chip room to be scrolled fully clear of it.
+ */
+private val STORE_FADE_WIDTH = 36.dp
+
+/**
  * Store chips in the user's manually chosen order (long-press a chip to drag
  * it; a plain tap still selects it). "All" is fixed at the end, never draggable.
+ *
+ * The row shares its line with the group toggle (R7.21), so chips scrolling
+ * toward it fade out against the background rather than running into it. The
+ * fade is paid for by [STORE_FADE_WIDTH] of end padding: at full scroll the last
+ * chip comes to rest just clear of the gradient, fully opaque and tappable. The
+ * gradient is drawn, not laid out, so it never intercepts a tap or a drag.
  */
 @Composable
 private fun StoreFilterRow(
     options: List<String>,
+    counts: Map<String, Int>,
     selected: String?,
     onSelect: (String?) -> Unit,
     onOrderPersist: (List<String>) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     // The selected store's label renders in the primary blue.
     val chipColors = FilterChipDefaults.filterChipColors(
@@ -757,17 +681,39 @@ private fun StoreFilterRow(
         }
     }
 
+    // Solid, so the chips dissolve into the screen rather than under a scrim.
+    // Fading to the same hue at zero alpha (not Color.Transparent, which is a
+    // transparent *black*) keeps a dark band out of the middle of the ramp.
+    val fadeColor = MaterialTheme.colorScheme.background
     LazyRow(
         state = lazyListState,
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            end = STORE_FADE_WIDTH,
+            top = 8.dp,
+            bottom = 8.dp,
+        ),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = modifier.drawWithContent {
+            drawContent()
+            val fade = STORE_FADE_WIDTH.toPx()
+            drawRect(
+                brush = Brush.horizontalGradient(
+                    colors = listOf(fadeColor.copy(alpha = 0f), fadeColor),
+                    startX = size.width - fade,
+                    endX = size.width,
+                ),
+                topLeft = Offset(size.width - fade, 0f),
+                size = Size(fade, size.height),
+            )
+        },
     ) {
         items(localOptions, key = { it }) { store ->
             ReorderableItem(reorderableState, key = store) { isDragging ->
                 FilterChip(
                     selected = selected == store,
                     onClick = { onSelect(if (selected == store) null else store) },
-                    label = { Text(store) },
+                    label = { StoreChipLabel(store = store, count = counts[store] ?: 0) },
                     colors = chipColors,
                     modifier = Modifier
                         .alpha(if (isDragging) 0.7f else 1f)
@@ -784,6 +730,27 @@ private fun StoreFilterRow(
                 onClick = { onSelect(null) },
                 label = { Text("All") },
                 colors = chipColors,
+            )
+        }
+    }
+}
+
+/**
+ * A store chip's label: the name, then how many active items it holds. The name
+ * takes no explicit color so it keeps the chip's selected/unselected treatment;
+ * the count is deliberately smaller and dimmer, being metadata rather than the
+ * label. A store with nothing on its list shows no number at all (R7.24).
+ */
+@Composable
+private fun StoreChipLabel(store: String, count: Int) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(store)
+        if (count > 0) {
+            Text(
+                text = count.toString(),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 6.dp),
             )
         }
     }

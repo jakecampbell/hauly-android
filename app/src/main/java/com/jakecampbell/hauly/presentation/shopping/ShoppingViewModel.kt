@@ -47,6 +47,12 @@ const val UNTAGGED_GROUP = "other"
 data class ShoppingUiState(
     val items: List<ShoppingItem> = emptyList(),
     val storeOptions: List<String> = emptyList(),
+    /**
+     * Active items per store, for the chip counts — keyed by the [storeOptions]
+     * name. Deliberately counts the *unfiltered* active list, so a chip's number
+     * is what selecting it would show, whichever store is in view.
+     */
+    val storeCounts: Map<String, Int> = emptyMap(),
     val tagOptions: List<String> = emptyList(),
     val selectedStore: String? = null,
     val isRefreshing: Boolean = false,
@@ -177,6 +183,9 @@ class ShoppingViewModel @Inject constructor(
         ShoppingUiState(
             items = visible,
             storeOptions = stores,
+            storeCounts = stores.associateWith { store ->
+                items.count { item -> item.stores.any { it.equals(store, ignoreCase = true) } }
+            },
             tagOptions = tags,
             selectedStore = local.store,
             isRefreshing = local.refreshing,

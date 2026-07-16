@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.EventAvailable
 import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -69,6 +70,8 @@ import com.jakecampbell.hauly.domain.model.RecipeBlock
 import com.jakecampbell.hauly.domain.model.RecipeSection
 import com.jakecampbell.hauly.domain.model.ShoppingItem
 import com.jakecampbell.hauly.domain.repository.RecipeRepository
+import com.jakecampbell.hauly.presentation.common.SwipeDirection
+import com.jakecampbell.hauly.presentation.common.SwipeToRevealBox
 import com.jakecampbell.hauly.presentation.common.longPressIris
 import com.jakecampbell.hauly.presentation.shopping.AddItemDialog
 import com.jakecampbell.hauly.presentation.shopping.EditItemDialog
@@ -209,11 +212,13 @@ fun RecipeDetailScreen(
                     }
                 }
                 items(state.ingredients, key = { it.localId }) { ingredient ->
-                    ShoppingItemRow(
-                        ingredient = ingredient,
-                        onToggleShopped = { viewModel.toggleShopped(ingredient) },
-                        onLongPress = { editItem = ingredient },
-                    )
+                    SwipeToUnlinkBox(onUnlink = { viewModel.removeFromRecipe(ingredient) }) {
+                        ShoppingItemRow(
+                            ingredient = ingredient,
+                            onToggleShopped = { viewModel.toggleShopped(ingredient) },
+                            onLongPress = { editItem = ingredient },
+                        )
+                    }
                 }
                 item {
                     TextButton(
@@ -575,6 +580,26 @@ private fun IngredientHeading(text: String) {
                 shape = RoundedCornerShape(6.dp),
             )
             .padding(horizontal = 10.dp, vertical = 8.dp),
+    )
+}
+
+/**
+ * Swiping an ingredient row left unlinks it from this recipe (R8.14). Left is
+ * the direction the pager doesn't need here: Recipes is its last page, so only
+ * the right swipe (back to Shopping) has to survive — the mirror image of the
+ * shopping list, where right is the free one (R7.18).
+ */
+@Composable
+private fun SwipeToUnlinkBox(
+    onUnlink: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    SwipeToRevealBox(
+        direction = SwipeDirection.LEFT,
+        icon = Icons.Default.LinkOff,
+        label = "Remove",
+        onTriggered = onUnlink,
+        content = content,
     )
 }
 

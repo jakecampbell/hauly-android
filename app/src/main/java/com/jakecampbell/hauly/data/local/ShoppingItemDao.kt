@@ -175,6 +175,10 @@ interface ShoppingItemDao {
     @Query("DELETE FROM recipe_item_refs WHERE item_local_id = :itemLocalId")
     suspend fun deleteRefsForItem(itemLocalId: String)
 
+    /** Unlink one item from one recipe, leaving its other recipe links intact. */
+    @Query("DELETE FROM recipe_item_refs WHERE recipe_id = :recipeId AND item_local_id = :itemLocalId")
+    suspend fun deleteRef(recipeId: String, itemLocalId: String)
+
     @Upsert
     suspend fun upsertRefs(refs: List<RecipeItemCrossRef>)
 
