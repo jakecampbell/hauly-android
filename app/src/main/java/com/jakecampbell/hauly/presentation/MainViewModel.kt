@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.jakecampbell.hauly.data.remote.NetworkActivityTracker
 import com.jakecampbell.hauly.data.sync.SyncScheduler
 import com.jakecampbell.hauly.domain.repository.OnboardingRepository
+import com.jakecampbell.hauly.domain.repository.RecipeExtractionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -19,6 +20,7 @@ class MainViewModel @Inject constructor(
     onboardingRepository: OnboardingRepository,
     networkActivityTracker: NetworkActivityTracker,
     syncScheduler: SyncScheduler,
+    extractionRepository: RecipeExtractionRepository,
 ) : ViewModel() {
 
     /** null while the persisted configuration is still being read. */
@@ -32,6 +34,9 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             if (onboardingRepository.isConfigured.first()) {
                 syncScheduler.requestSync()
+                // Extractions left unfinished by a process death resume their
+                // poll loop here; a no-op when none are active.
+                extractionRepository.resumePolling()
             }
         }
     }

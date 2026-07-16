@@ -22,6 +22,8 @@ data class SettingsUiState(
     val lastSyncLabel: String? = null,
     val isOnline: Boolean = true,
     val syncRequested: Boolean = false,
+    /** Whether a hauly-backend beta token is stored (the token itself never leaves DataStore). */
+    val betaTokenSet: Boolean = false,
 )
 
 @HiltViewModel
@@ -49,7 +51,8 @@ class SettingsViewModel @Inject constructor(
         settings.lastSyncAt,
         connectivityObserver.isOnline,
         syncRequested,
-    ) { (shoppingId, recipeId), lastSync, online, requested ->
+        settings.hasBackendToken,
+    ) { (shoppingId, recipeId), lastSync, online, requested, betaTokenSet ->
         SettingsUiState(
             shoppingDatabaseId = shoppingId,
             recipeDatabaseId = recipeId,
@@ -58,11 +61,17 @@ class SettingsViewModel @Inject constructor(
             },
             isOnline = online,
             syncRequested = requested,
+            betaTokenSet = betaTokenSet,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
     fun syncNow() {
         syncScheduler.requestSync()
         syncRequested.value = true
+    }
+
+    /** Save (or, with a blank value, clear) the hauly-backend beta token. */
+    fun saveBetaToken(token: String) {
+        viewModelScope.launch { settings.setBackendToken(token) }
     }
 }

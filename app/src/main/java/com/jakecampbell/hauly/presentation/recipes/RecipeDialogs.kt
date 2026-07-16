@@ -4,7 +4,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -21,22 +23,35 @@ import androidx.compose.ui.unit.dp
 /**
  * Create a new recipe: a name plus optional ingredient and instruction text
  * (one item/step per line). Confirming is online-first (handled upstream).
+ * The initial values prefill the fields when reviewing a clipboard extraction;
+ * the remembers are keyed on them so a different extraction doesn't reuse
+ * another's edited field state.
  */
 @Composable
 fun RecipeCreateDialog(
     onDismiss: () -> Unit,
     onConfirm: (name: String, ingredients: String, instructions: String, url: String) -> Unit,
+    initialName: String = "",
+    initialIngredients: String = "",
+    initialInstructions: String = "",
+    initialUrl: String = "",
 ) {
-    var name by remember { mutableStateOf("") }
-    var ingredients by remember { mutableStateOf("") }
-    var instructions by remember { mutableStateOf("") }
-    var url by remember { mutableStateOf("") }
+    var name by remember(initialName) { mutableStateOf(initialName) }
+    var ingredients by remember(initialIngredients) { mutableStateOf(initialIngredients) }
+    var instructions by remember(initialInstructions) { mutableStateOf(initialInstructions) }
+    var url by remember(initialUrl) { mutableStateOf(initialUrl) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("new recipe") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // The multi-line fields grow to fit all of their text (no inner
+            // scrolling — important when reviewing a long extraction), and the
+            // whole panel scrolls once it outgrows the dialog.
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+            ) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },

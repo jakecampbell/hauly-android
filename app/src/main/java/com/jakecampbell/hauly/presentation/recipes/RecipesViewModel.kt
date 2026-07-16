@@ -2,9 +2,12 @@ package com.jakecampbell.hauly.presentation.recipes
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.jakecampbell.hauly.data.settings.SettingsRepository
 import com.jakecampbell.hauly.data.sync.ConnectivityObserver
 import com.jakecampbell.hauly.domain.model.Recipe
+import com.jakecampbell.hauly.domain.model.RecipeExtraction
 import com.jakecampbell.hauly.domain.model.RecipeSort
+import com.jakecampbell.hauly.domain.repository.RecipeExtractionRepository
 import com.jakecampbell.hauly.domain.repository.RecipeRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -39,6 +42,10 @@ data class RecipesUiState(
     val isRefreshing: Boolean = false,
     val isOnline: Boolean = true,
     val hasLoaded: Boolean = false,
+    /** In-flight and finished-but-unreviewed clipboard extractions, oldest first. */
+    val extractions: List<RecipeExtraction> = emptyList(),
+    /** Whether a hauly-backend beta token is stored — gates the clipboard flow. */
+    val hasBackendToken: Boolean = false,
 ) {
     val isEmpty: Boolean get() = planned.isEmpty() && others.isEmpty()
 
@@ -52,6 +59,8 @@ data class RecipesUiState(
 @HiltViewModel
 class RecipesViewModel @Inject constructor(
     private val repository: RecipeRepository,
+    private val extractionRepository: RecipeExtractionRepository,
+    settings: SettingsRepository,
     connectivityObserver: ConnectivityObserver,
 ) : ViewModel() {
 
@@ -91,7 +100,16 @@ class RecipesViewModel @Inject constructor(
             isOnline = online,
             hasLoaded = true,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RecipesUiState())
+    }
+        // The five-flow combine above is at the overload's max arity, so the
+        // extraction inputs chain on as further combines.
+        .combine(extractionRepository.extractions()) { state, extractions ->
+            state.copy(extractions = extractions)
+        }
+        .combine(settings.hasBackendToken) { state, hasToken ->
+            state.copy(hasBackendToken = hasToken)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RecipesUiState())
 
     /** Persisted, so the choice survives a tab switch and an app restart. */
     fun setSort(mode: RecipeSort) {
@@ -115,9 +133,16 @@ class RecipesViewModel @Inject constructor(
 
     /**
      * Create a recipe (online-first). Emits the new id via [created] on success
-     * so the caller can open it. Blank names are rejected.
+     * so the caller can open it. Blank names are rejected. When the dialog was
+     * prefilled from an extraction, [extractionId] removes that row on success.
      */
-    fun createRecipe(name: String, ingredients: String, instructions: String, url: String) {
+    fun createRecipe(
+        name: String,
+        ingredients: String,
+        instructions: String,
+        url: String,
+        extractionId: String? = null,
+    ) {
         val trimmed = name.trim()
         if (trimmed.isEmpty()) {
             viewModelScope.launch { _messages.emit("Give the recipe a name.") }
@@ -130,9 +155,48 @@ class RecipesViewModel @Inject constructor(
         viewModelScope.launch {
             _isCreating.value = true
             repository.createRecipe(trimmed, ingredients.trim(), instructions.trim(), url.trim())
-                .onSuccess { _created.emit(it) }
+                .onSuccess {
+                    extractionId?.let { id -> extractionRepository.dismiss(id) }
+                    _created.emit(it)
+                }
                 .onFailure { _messages.emit("Couldn't create the recipe.") }
             _isCreating.value = false
         }
+    }
+
+    /**
+     * Send clipboard text to the extraction backend. Guards mirror the
+     * backend's contract (non-blank, ≤100k chars) plus the online-first rule.
+     * Past the guards, all further feedback lives on the extraction row itself
+     * (SUBMITTING appears immediately; a failed submit shows there with Retry).
+     */
+    fun submitClipboard(text: String) {
+        viewModelScope.launch {
+            when {
+                text.isBlank() ->
+                    _messages.emit("Clipboard is empty.")
+
+                text.length > MAX_EXTRACTION_CHARS ->
+                    _messages.emit("That's too much text to extract (100,000 character limit).")
+
+                !uiState.value.isOnline ->
+                    _messages.emit("Extracting a recipe needs an internet connection.")
+
+                else -> extractionRepository.submit(text)
+            }
+        }
+    }
+
+    fun retryExtraction(id: String) {
+        extractionRepository.retry(id)
+    }
+
+    fun dismissExtraction(id: String) {
+        viewModelScope.launch { extractionRepository.dismiss(id) }
+    }
+
+    private companion object {
+        /** The backend rejects extraction requests longer than this (R2.10). */
+        const val MAX_EXTRACTION_CHARS = 100_000
     }
 }

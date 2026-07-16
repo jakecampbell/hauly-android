@@ -63,6 +63,36 @@ requirement below reproduces the app's behavior exactly.
 - **R2.8** Known Notion quirk that must be handled: the query index lags behind patches it
   just accepted. A refresh immediately after a write can return pre-write state (see R5.8).
 
+### 2.4 Hauly extraction backend (recipe extraction service)
+
+A second, non-Notion remote: the `hauly-backend` web service extracts a structured recipe
+from an arbitrary blob of pasted text (R8.15–R8.17). It gets its **own OkHttp client and
+Retrofit instance** — the Notion interceptors (headers, activity tracking) must never apply
+to it, and the Notion PAT must never be sent to it.
+
+- **R2.9** The backend base URL is a compile-time `BuildConfig` constant
+  (`HAULY_BACKEND_BASE_URL`). Every request sends `Authorization: Bearer <beta token>`,
+  where the beta token is **user-entered** (R6.6) and stored in DataStore — never
+  hard-coded. Transient 429/5xx responses reuse the R2.3 backoff interceptor (fewer
+  attempts, so a poll tick fails fast). Debug HTTP logging redacts `Authorization` (R2.6).
+  The global network-activity bar (R9.2) stays scoped to Notion traffic: backend polling has
+  its own indicator (R8.16) and must not drive the bar.
+- **R2.10** Endpoint contract: `POST /api/v1/recipes/extract` with body
+  `{"content": "<text>"}` (1–100,000 chars) returns 202 with
+  `{"extraction_id": "<uuid>", "status": "pending"}`;
+  `GET /api/v1/recipes/extractions/{id}` returns
+  `{"status": "pending"|"processing"|"completed"|"no_recipe"|"failed", "recipe"?: {"title",
+  "ingredients", "instructions"}, "error"?: "<reason>"}` with null fields omitted.
+  `no_recipe` is terminal: the service judged the text not to be a recipe, with the
+  explanation in `error` (no `recipe` payload). `ingredients`/`instructions` are
+  newline-separated strings — the same format as R8.7.
+  Errors: 401 invalid/missing beta token, 404 unknown extraction id, 422 malformed id.
+  Recommended poll cadence is 1–2 seconds. **Forward compatibility:** a status value or
+  response body this client doesn't recognize must resolve the extraction as `FAILED`
+  (R5.13) — never leave it polling/pulsing forever.
+- **R2.11** Unlike Notion's lenient JSON (R2.5 is Notion-specific), this API is a contract we
+  own and is parsed with typed `@Serializable` DTOs (unknown keys ignored).
+
 ---
 
 ## 3. Architecture
@@ -125,6 +155,17 @@ requirement below reproduces the app's behavior exactly.
 - **R4.6** Active-list ordering: manually ranked rows first in rank order, then the rest
   alphabetically (case-insensitive). This is the ungrouped order; the group-by-tag view
   (R7.21) replaces it with alphabetical sections and ignores `manual_rank` entirely.
+- **R4.8** `recipe_extractions` table: **device-local** extraction jobs on the hauly-backend
+  (R8.15–R8.17), never pushed to Notion. Columns: extraction id (primary key — the server's
+  uuid, except while `SUBMITTING`, when it is a client-generated `local-` placeholder id
+  swapped for the server's once the POST returns),
+  `source_text` (the full submitted text, kept so a failed extraction can be resubmitted),
+  `status` (`SUBMITTING`/`PENDING`/`PROCESSING`/`COMPLETED`/`FAILED`), extracted `title`/
+  `ingredients`/`instructions` ("" until completed), nullable `error`, `created_at`,
+  `updated_at`, and
+  `sync_status` (constant `SYNCED` — present for entity uniformity only; the sync engine
+  ignores this table like `recipe_line_marks`). Added in Room schema **version 9** with an
+  explicit additive migration (`MIGRATION_8_9`).
 
 ---
 
@@ -195,6 +236,27 @@ requirement below reproduces the app's behavior exactly.
   updates instead of re-creating — Notion's lagging query index makes re-running
   create-with-merge unsafe), and if the row was hard-deleted mid-create, the just-created page
   is archived.
+- **R5.13** **Extraction polling is not sync-engine work.** Recipe extractions (R8.16) are
+  *not* flushed through the WorkManager queue — WorkManager cannot run at the 1–2 s cadence
+  the backend expects. Instead an application-scoped in-process loop in the extraction
+  repository polls every active `recipe_extractions` row (~2 s cadence) and writes each status
+  transition into Room (Room stays the UI's only source, per R3.3). Transient failures
+  (offline, 5xx) back the cadence off (max 30 s) and keep trying while the process lives;
+  401/404/422, unrecognized status values, unparseable response bodies (which must not kill
+  the poll loop), and extractions older than 5 minutes become terminal `FAILED` rows with a
+  user-readable error; a `no_recipe` status becomes a terminal `NO_RECIPE` row carrying the
+  service's explanation. **Status transitions are UPDATE-only** (never insert-or-replace):
+  the user can cancel any in-flight row (R8.16), and a transition — including a submit POST
+  landing after its placeholder was cancelled — must not resurrect a deleted row.
+  The loop exits when no active rows remain, restarts on the next submit,
+  and is **resumed on app start** (alongside R5.9's sync) so rows survive process death — the
+  backend recovers its own crashed jobs server-side. **Submission is also app-scoped and
+  row-first:** the submit POST runs in the application scope (leaving the screen must not
+  cancel it) and writes a `SUBMITTING` placeholder row *before* the request goes out, because
+  a cold-started backend can hold the POST for tens of seconds and the user needs immediate
+  feedback; the placeholder upgrades to `PENDING` (server id) on success and to `FAILED` on
+  error. A submit POST dies with the process, so any `SUBMITTING` row found at app start is
+  marked `FAILED` ("interrupted") — its Retry resubmits the stored text.
 
 ---
 
@@ -213,6 +275,13 @@ requirement below reproduces the app's behavior exactly.
   by clearing app data and re-onboarding — no in-app editing required.
 - **R6.5** The Settings tab shows the app's semantic version (e.g. "Version 1.0.0"), read
   from the build's `versionName` via `BuildConfig` — not a separately maintained value.
+- **R6.6** **Hauly beta token (optional).** Onboarding additionally offers an optional
+  "Hauly beta token" field (password-masked like the PAT); leaving it blank completes setup
+  normally and simply hides the clipboard-extraction flow (R8.15). Unlike the Notion values
+  (R6.4), the token is also **editable any time in Settings** — a "Recipe extraction (beta)"
+  section with a masked field and Save (saving empty clears it) — with no re-onboarding and
+  no validation call: a wrong token surfaces as a clear "token rejected" error when an
+  extraction is submitted or polled. Stored in DataStore (R3.6).
 
 ---
 
@@ -523,7 +592,9 @@ requirement below reproduces the app's behavior exactly.
 - **R8.10** **Create recipe.** A "+" button on the Recipes list opens a dialog for name plus
   optional ingredient/instruction text; confirming is **online-first** (writes to Notion, then
   caches the row and opens it). Blank names are rejected; when offline the attempt reports that
-  a connection is required.
+  a connection is required. The ingredient/instruction fields **grow with their content**
+  (all text visible, no inner field scrolling) and the dialog's panel scrolls as a whole once
+  it outgrows the dialog — so a long prefilled extraction (R8.17) can be reviewed end to end.
 - **R8.11** **Delete recipe.** A destructive action on the recipe detail (two taps to confirm,
   error color) that is **online-first**: it archives the Notion page (recoverable from the
   Notion trash), removes the local row and its relations, and returns to the list. When offline
@@ -561,6 +632,43 @@ requirement below reproduces the app's behavior exactly.
   precisely because Recipes is the pager's **last** page (R9.1), so nothing pages to its left;
   the right swipe (back to Shopping) must still get through, which is what R7.20's direction
   discipline guarantees.
+- **R8.15** **Paste recipe from clipboard (trigger & preview).** **Long-pressing** the
+  Recipes "+" button (with the same growing-iris hold affordance as R7.16's long-press; the
+  button is a Surface-based FAB look-alike because Material3's `FloatingActionButton` exposes
+  no `onLongClick`) reveals a **preview card** floating above the button showing the current
+  clipboard text — first few lines ellipsized plus a character count — with an invisible
+  full-screen scrim behind it so tapping anywhere else dismisses it. Only the **current**
+  clipboard item is available (Android exposes no clipboard history). Tapping the card
+  submits the text to the extraction backend (R2.10) and dismisses the card, and a
+  `SUBMITTING` status row (R8.16) appears **immediately** — before the POST completes.
+  Guard rails: with no beta token stored (R6.6) the card instead shows a
+  configure-in-Settings hint; an empty clipboard shows "copy a recipe first"; text over
+  100,000 chars and being offline each report via snackbar and create nothing. A submit that
+  gets past those guards but fails on the wire (bad token, unreachable service) becomes a
+  `FAILED` row with Retry (R5.13) rather than vanishing. A plain tap on the button still
+  opens the R8.10 create dialog, unchanged.
+- **R8.16** **Extraction status row.** Every row in `recipe_extractions` (R4.8) renders as a
+  status row **pinned above the list** (above the Planned box, and still visible while
+  searching — it is transient status, not list content), styled like the Planned card.
+  While in flight it shows a small spinner over a **pulsing** background (container color
+  alpha animating ~0.4↔1.0, ~800 ms per leg) — labeled "Sending to recipe service…" while
+  `SUBMITTING` (the POST can be held by a cold-started backend) and "Parsing recipe…" once
+  `PENDING`/`PROCESSING` — with a ✕ to **cancel**: the row is deleted locally and any late
+  result for it is dropped (R5.13); the backend job simply finishes unobserved. The row body
+  itself is not tappable while in flight. On `COMPLETED` the pulse stops (steady `primaryContainer`) and the row shows
+  the extracted title (fallback "Recipe ready") with a "Tap to review" caption — it **stays
+  until the user acts on it**, surviving process death (R5.13) — plus a ✕ to dismiss without
+  creating. On `FAILED` it turns `errorContainer` and shows the stored error with **Retry**
+  (deletes the failed row and resubmits its `source_text` as a new extraction) and ✕
+  (dismiss). On `NO_RECIPE` it renders like `FAILED` (error colors, the service's
+  explanation, ✕) but **without Retry** — the service already judged the text not to be a
+  recipe, so resubmitting it can't help. Multiple extractions may run at once, one row each,
+  oldest first. Extraction polling must not flicker the global network bar (R2.9).
+- **R8.17** **Review & create.** Tapping a completed extraction row opens the **R8.10 create
+  dialog prefilled** with the extracted title/ingredients/instructions for the user to review
+  and correct — **nothing is auto-created in Notion**. Confirming runs the normal online-first
+  create (R8.10, including opening the new recipe) and deletes the extraction row; cancelling
+  keeps the row for later.
 
 ---
 

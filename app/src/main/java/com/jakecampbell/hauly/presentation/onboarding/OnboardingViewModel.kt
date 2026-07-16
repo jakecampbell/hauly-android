@@ -2,6 +2,7 @@ package com.jakecampbell.hauly.presentation.onboarding
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.jakecampbell.hauly.data.settings.SettingsRepository
 import com.jakecampbell.hauly.domain.model.SetupValidation
 import com.jakecampbell.hauly.domain.repository.OnboardingRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -16,6 +17,8 @@ data class OnboardingUiState(
     val token: String = "",
     val shoppingDatabaseId: String = "",
     val recipeDatabaseId: String = "",
+    /** Optional hauly-backend beta token; blank skips the extraction feature. */
+    val betaToken: String = "",
     val isValidating: Boolean = false,
     /** Human-readable validation problems; empty when nothing failed yet. */
     val problems: List<String> = emptyList(),
@@ -29,6 +32,7 @@ data class OnboardingUiState(
 @HiltViewModel
 class OnboardingViewModel @Inject constructor(
     private val onboardingRepository: OnboardingRepository,
+    private val settings: SettingsRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(OnboardingUiState())
@@ -40,6 +44,8 @@ class OnboardingViewModel @Inject constructor(
 
     fun onRecipeDbChange(value: String) = _uiState.update { it.copy(recipeDatabaseId = value) }
 
+    fun onBetaTokenChange(value: String) = _uiState.update { it.copy(betaToken = value) }
+
     fun validate() {
         val state = _uiState.value
         if (!state.canSubmit) return
@@ -50,6 +56,10 @@ class OnboardingViewModel @Inject constructor(
                 shoppingDatabaseId = state.shoppingDatabaseId,
                 recipeDatabaseId = state.recipeDatabaseId,
             )
+            if (result is SetupValidation.Valid && state.betaToken.isNotBlank()) {
+                // Optional: unlocks the clipboard recipe-extraction flow.
+                settings.setBackendToken(state.betaToken)
+            }
             _uiState.update {
                 when (result) {
                     is SetupValidation.Valid ->

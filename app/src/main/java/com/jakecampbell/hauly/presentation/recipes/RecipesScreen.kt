@@ -27,9 +27,9 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,19 +44,24 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jakecampbell.hauly.domain.model.Recipe
+import com.jakecampbell.hauly.domain.model.RecipeExtraction
 import com.jakecampbell.hauly.domain.model.RecipeSort
 import com.jakecampbell.hauly.presentation.common.EmptyState
 import com.jakecampbell.hauly.presentation.common.OfflineBanner
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,6 +72,13 @@ fun RecipesScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showCreate by remember { mutableStateOf(false) }
+    /** Clipboard peek revealed by long-pressing the FAB; null while hidden. */
+    var clipPreview by remember { mutableStateOf<ClipPreview?>(null) }
+    /** Completed extraction being reviewed in the (prefilled) create dialog. */
+    var prefillExtraction by remember { mutableStateOf<RecipeExtraction?>(null) }
+    val clipboard = LocalClipboard.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
 
     // Re-sorting rearranges everything under the user, so send them back to the
@@ -100,6 +112,7 @@ fun RecipesScreen(
         // Opening the freshly created recipe closes the create dialog.
         viewModel.created.collect { newId ->
             showCreate = false
+            prefillExtraction = null
             onRecipeClick(newId)
         }
     }
@@ -140,6 +153,17 @@ fun RecipesScreen(
 
         if (!state.isOnline) {
             OfflineBanner(pendingEdits = 0)
+        }
+
+        // In-flight clipboard extractions stay pinned above the list — even
+        // while searching, since they're transient status rather than content.
+        state.extractions.forEach { extraction ->
+            ExtractionRow(
+                extraction = extraction,
+                onOpen = { prefillExtraction = extraction },
+                onRetry = { viewModel.retryExtraction(extraction.id) },
+                onDismiss = { viewModel.dismissExtraction(extraction.id) },
+            )
         }
 
         // Planned recipes stay frozen above the scrolling list, but the search
@@ -189,20 +213,73 @@ fun RecipesScreen(
         }
     }
 
-        FloatingActionButton(
+        // While the clipboard preview is up, a full-screen invisible scrim
+        // dismisses it on any outside tap.
+        if (clipPreview != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) { clipPreview = null },
+            )
+        }
+
+        LongPressFab(
             onClick = { showCreate = true },
+            onLongClick = {
+                // Reading the clipboard is a suspend call on this API; the
+                // preview state lands once the text is in hand.
+                scope.launch {
+                    val text = clipboard.getClipEntry()
+                        ?.clipData
+                        ?.getItemAt(0)
+                        ?.coerceToText(context)
+                        ?.toString()
+                        .orEmpty()
+                    clipPreview = when {
+                        !state.hasBackendToken -> ClipPreview.NoToken
+                        text.isBlank() -> ClipPreview.Empty
+                        else -> ClipPreview.Ready(text)
+                    }
+                }
+            },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(16.dp),
         ) {
             Icon(Icons.Filled.Add, contentDescription = "New recipe")
         }
+
+        clipPreview?.let { preview ->
+            ClipboardPreviewCard(
+                preview = preview,
+                onSubmit = { text ->
+                    viewModel.submitClipboard(text)
+                    clipPreview = null
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(start = 32.dp, end = 16.dp, bottom = 88.dp),
+            )
+        }
     }
 
-    if (showCreate) {
+    if (showCreate || prefillExtraction != null) {
+        val prefill = prefillExtraction
         RecipeCreateDialog(
-            onDismiss = { showCreate = false },
-            onConfirm = viewModel::createRecipe,
+            initialName = prefill?.title.orEmpty(),
+            initialIngredients = prefill?.ingredients.orEmpty(),
+            initialInstructions = prefill?.instructions.orEmpty(),
+            onDismiss = {
+                // Cancelling a review keeps the extraction row for later.
+                showCreate = false
+                prefillExtraction = null
+            },
+            onConfirm = { name, ingredients, instructions, url ->
+                viewModel.createRecipe(name, ingredients, instructions, url, prefill?.id)
+            },
         )
     }
 }

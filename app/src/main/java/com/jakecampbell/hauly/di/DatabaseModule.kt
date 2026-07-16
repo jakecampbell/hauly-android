@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.jakecampbell.hauly.data.local.HaulyDatabase
 import com.jakecampbell.hauly.data.local.RecipeDao
+import com.jakecampbell.hauly.data.local.RecipeExtractionDao
 import com.jakecampbell.hauly.data.local.ShoppingItemDao
 import dagger.Module
 import dagger.Provides
@@ -20,6 +21,7 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): HaulyDatabase =
         Room.databaseBuilder(context, HaulyDatabase::class.java, "hauly.db")
+            .addMigrations(HaulyDatabase.MIGRATION_8_9)
             .fallbackToDestructiveMigration(dropAllTables = true)
             .build()
 
@@ -28,4 +30,8 @@ object DatabaseModule {
 
     @Provides
     fun provideRecipeDao(db: HaulyDatabase): RecipeDao = db.recipeDao()
+
+    @Provides
+    fun provideRecipeExtractionDao(db: HaulyDatabase): RecipeExtractionDao =
+        db.recipeExtractionDao()
 }

@@ -18,6 +18,14 @@ android {
         targetSdk = 36
         versionCode = 8
         versionName = "1.0.7"
+
+        // The hauly-backend recipe-extraction service. The URL is fixed per
+        // build; the beta token is user-entered and lives in DataStore (R2.9).
+        buildConfigField(
+            "String",
+            "HAULY_BACKEND_BASE_URL",
+            "\"https://hauly-backend.onrender.com/\"",
+        )
     }
 
     buildTypes {

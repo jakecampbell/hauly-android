@@ -95,6 +95,16 @@ fun OnboardingScreen(
             modifier = Modifier.fillMaxWidth(),
             enabled = !state.isValidating,
         )
+        OutlinedTextField(
+            value = state.betaToken,
+            onValueChange = viewModel::onBetaTokenChange,
+            label = { Text("Hauly beta token (optional)") },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !state.isValidating,
+        )
 
         if (state.problems.isNotEmpty()) {
             Card(

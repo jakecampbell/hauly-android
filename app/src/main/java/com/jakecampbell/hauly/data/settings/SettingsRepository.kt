@@ -43,6 +43,9 @@ class SettingsRepository @Inject constructor(
 
         /** [RecipeSort] name: the recipe list's chosen sort. */
         val RECIPE_SORT = stringPreferencesKey("recipe_sort")
+
+        /** Beta token for the hauly-backend extraction service; absent until set. */
+        val BACKEND_TOKEN = stringPreferencesKey("hauly_backend_token")
     }
 
     val isConfigured: Flow<Boolean> = dataStore.data.map { it[Keys.CONFIGURED] ?: false }
@@ -110,6 +113,21 @@ class SettingsRepository @Inject constructor(
     }
 
     suspend fun token(): String? = dataStore.data.first()[Keys.TOKEN]
+
+    /** Beta token for the hauly-backend extraction service; null when unset. */
+    suspend fun backendToken(): String? = dataStore.data.first()[Keys.BACKEND_TOKEN]
+
+    /** Whether a backend beta token is stored — gates the clipboard-extraction UI. */
+    val hasBackendToken: Flow<Boolean> =
+        dataStore.data.map { !it[Keys.BACKEND_TOKEN].isNullOrBlank() }
+
+    /** Save (or, with a blank value, clear) the backend beta token. */
+    suspend fun setBackendToken(token: String) {
+        dataStore.edit {
+            val trimmed = token.trim()
+            if (trimmed.isEmpty()) it.remove(Keys.BACKEND_TOKEN) else it[Keys.BACKEND_TOKEN] = trimmed
+        }
+    }
 
     suspend fun shoppingDatabaseId(): String? = dataStore.data.first()[Keys.SHOPPING_DB]
 
