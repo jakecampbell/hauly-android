@@ -42,6 +42,13 @@ data class RecipeExtractionEntity(
     @ColumnInfo(name = "error")
     val error: String?,
 
+    /**
+     * Which backend extractor built this job — `"extract"` (pasted source) or
+     * `"magic"` (free text). Kept so Retry (R5.13) resubmits to the same route.
+     */
+    @ColumnInfo(name = "endpoint")
+    val endpoint: String,
+
     @ColumnInfo(name = "created_at")
     val createdAt: Long,
 

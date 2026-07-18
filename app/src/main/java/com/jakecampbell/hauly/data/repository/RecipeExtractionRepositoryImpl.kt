@@ -43,10 +43,10 @@ class RecipeExtractionRepositoryImpl @Inject constructor(
     override fun extractions(): Flow<List<RecipeExtraction>> =
         dao.extractions().map { rows -> rows.map { it.toDomain() } }
 
-    override fun submit(text: String) {
+    override fun submit(text: String, magic: Boolean) {
         // App scope, not the caller's: leaving the Recipes screen mid-POST
         // must not cancel the submission.
-        appScope.launch { doSubmit(text) }
+        appScope.launch { doSubmit(text, magic) }
     }
 
     /**
@@ -56,7 +56,7 @@ class RecipeExtractionRepositoryImpl @Inject constructor(
      * the placeholder is swapped for a PENDING row; a failed submit becomes a
      * FAILED row (Retry resubmits the stored text) instead of vanishing.
      */
-    private suspend fun doSubmit(text: String) {
+    private suspend fun doSubmit(text: String, magic: Boolean) {
         val now = System.currentTimeMillis()
         val placeholder = RecipeExtractionEntity(
             id = LOCAL_ID_PREFIX + UUID.randomUUID(),
@@ -66,12 +66,15 @@ class RecipeExtractionRepositoryImpl @Inject constructor(
             ingredients = "",
             instructions = "",
             error = null,
+            endpoint = if (magic) ENDPOINT_MAGIC else ENDPOINT_EXTRACT,
             createdAt = now,
             updatedAt = now,
         )
         dao.upsert(placeholder)
         try {
-            val response = api.submitExtraction(ExtractRequest(content = text))
+            val request = ExtractRequest(content = text)
+            val response =
+                if (magic) api.submitMagicExtraction(request) else api.submitExtraction(request)
             // delete() returning 0 means the user cancelled the row while the
             // POST was in flight — drop the result instead of resurrecting it.
             if (dao.delete(placeholder.id) > 0) {
@@ -102,7 +105,8 @@ class RecipeExtractionRepositoryImpl @Inject constructor(
             // The failed row is replaced by the resubmission's SUBMITTING row;
             // a failed resubmit produces its own FAILED row, so Retry survives.
             dao.delete(id)
-            doSubmit(row.sourceText)
+            // Resubmit to whichever route originally built the job (R8.15).
+            doSubmit(row.sourceText, magic = row.endpoint == ENDPOINT_MAGIC)
         }
     }
 
@@ -240,6 +244,10 @@ class RecipeExtractionRepositoryImpl @Inject constructor(
     private companion object {
         /** Marks placeholder ids minted before the server assigns the real one. */
         const val LOCAL_ID_PREFIX = "local-"
+
+        /** [RecipeExtractionEntity.endpoint] values — which backend route built the job. */
+        const val ENDPOINT_EXTRACT = "extract"
+        const val ENDPOINT_MAGIC = "magic"
 
         const val POLL_INTERVAL_MILLIS = 2_000L
         const val MAX_POLL_DELAY_MILLIS = 30_000L

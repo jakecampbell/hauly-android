@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         RecipeLineMarkEntity::class,
         RecipeExtractionEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
@@ -41,6 +41,20 @@ abstract class HaulyDatabase : RoomDatabase() {
                         "`updated_at` INTEGER NOT NULL, " +
                         "`sync_status` TEXT NOT NULL, " +
                         "PRIMARY KEY(`id`))"
+                )
+            }
+        }
+
+        /**
+         * v10 adds `endpoint` to recipe_extractions so a free-text (magic-route)
+         * extraction's Retry resubmits to the same route. Existing rows predate
+         * the free-text flow, so they default to the pasted-source `extract`.
+         */
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE `recipe_extractions` " +
+                        "ADD COLUMN `endpoint` TEXT NOT NULL DEFAULT 'extract'"
                 )
             }
         }

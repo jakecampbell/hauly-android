@@ -165,16 +165,25 @@ class RecipesViewModel @Inject constructor(
     }
 
     /**
-     * Send clipboard text to the extraction backend. Guards mirror the
-     * backend's contract (non-blank, ≤100k chars) plus the online-first rule.
-     * Past the guards, all further feedback lives on the extraction row itself
-     * (SUBMITTING appears immediately; a failed submit shows there with Retry).
+     * Send clipboard text to the extraction backend (pasted-source route).
+     * Guards mirror the backend's contract (non-blank, ≤100k chars) plus the
+     * online-first rule. Past the guards, all further feedback lives on the
+     * extraction row itself (SUBMITTING appears immediately; a failed submit
+     * shows there with Retry).
      */
-    fun submitClipboard(text: String) {
+    fun submitClipboard(text: String) = submitForExtraction(text, magic = false, emptyMessage = "Clipboard is empty.")
+
+    /**
+     * Send typed free text to the backend's magic extractor (R8.15). Same guards
+     * and downstream flow as [submitClipboard]; only the route differs.
+     */
+    fun submitFreeText(text: String) = submitForExtraction(text, magic = true, emptyMessage = "Enter some text first.")
+
+    private fun submitForExtraction(text: String, magic: Boolean, emptyMessage: String) {
         viewModelScope.launch {
             when {
                 text.isBlank() ->
-                    _messages.emit("Clipboard is empty.")
+                    _messages.emit(emptyMessage)
 
                 text.length > MAX_EXTRACTION_CHARS ->
                     _messages.emit("That's too much text to extract (100,000 character limit).")
@@ -182,7 +191,7 @@ class RecipesViewModel @Inject constructor(
                 !uiState.value.isOnline ->
                     _messages.emit("Extracting a recipe needs an internet connection.")
 
-                else -> extractionRepository.submit(text)
+                else -> extractionRepository.submit(text, magic = magic)
             }
         }
     }

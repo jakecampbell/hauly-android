@@ -79,7 +79,12 @@ to it, and the Notion PAT must never be sent to it.
   its own indicator (R8.16) and must not drive the bar.
 - **R2.10** Endpoint contract: `POST /api/v1/recipes/extract` with body
   `{"content": "<text>"}` (1–100,000 chars) returns 202 with
-  `{"extraction_id": "<uuid>", "status": "pending"}`;
+  `{"extraction_id": "<uuid>", "status": "pending"}`. A second submit route,
+  `POST /api/v1/recipes/extract/magic`, takes the **same** request body and returns
+  the same 202+id shape; it builds a recipe from a typed free-text blob (R8.15)
+  rather than pasted source. Both routes are polled through the same status
+  endpoint below, and which route created a job is persisted (R4.8) so its Retry
+  (R5.13) resubmits to the same route.
   `GET /api/v1/recipes/extractions/{id}` returns
   `{"status": "pending"|"processing"|"completed"|"no_recipe"|"failed", "recipe"?: {"title",
   "ingredients", "instructions"}, "error"?: "<reason>"}` with null fields omitted.
@@ -161,11 +166,14 @@ to it, and the Notion PAT must never be sent to it.
   swapped for the server's once the POST returns),
   `source_text` (the full submitted text, kept so a failed extraction can be resubmitted),
   `status` (`SUBMITTING`/`PENDING`/`PROCESSING`/`COMPLETED`/`FAILED`), extracted `title`/
-  `ingredients`/`instructions` ("" until completed), nullable `error`, `created_at`,
+  `ingredients`/`instructions` ("" until completed), nullable `error`,
+  `endpoint` (`extract` for pasted source / `magic` for free text — which route built the
+  job, so Retry resubmits to the same one, R2.10), `created_at`,
   `updated_at`, and
   `sync_status` (constant `SYNCED` — present for entity uniformity only; the sync engine
   ignores this table like `recipe_line_marks`). Added in Room schema **version 9** with an
-  explicit additive migration (`MIGRATION_8_9`).
+  explicit additive migration (`MIGRATION_8_9`); `endpoint` added in **version 10**
+  (`MIGRATION_9_10`, additive with a `DEFAULT 'extract'` for pre-existing rows).
 
 ---
 
@@ -635,25 +643,35 @@ to it, and the Notion PAT must never be sent to it.
 - **R8.15** **Paste recipe from clipboard (trigger & preview).** **Long-pressing** the
   Recipes "+" button (with the same growing-iris hold affordance as R7.16's long-press; the
   button is a Surface-based FAB look-alike because Material3's `FloatingActionButton` exposes
-  no `onLongClick`) reveals a **preview card** floating above the button showing the current
-  clipboard text — first few lines ellipsized plus a character count — with an invisible
+  no `onLongClick`) reveals a **preview card**, titled with an ai-sparkle glyph, floating
+  above the button showing the current clipboard text — first few lines ellipsized plus a
+  character count — with an invisible
   full-screen scrim behind it so tapping anywhere else dismisses it. Only the **current**
   clipboard item is available (Android exposes no clipboard history). Tapping the card
   submits the text to the extraction backend (R2.10) and dismisses the card, and a
   `SUBMITTING` status row (R8.16) appears **immediately** — before the POST completes.
   Guard rails: with no beta token stored (R6.6) the card instead shows a
-  configure-in-Settings hint; an empty clipboard shows "copy a recipe first"; text over
-  100,000 chars and being offline each report via snackbar and create nothing. A submit that
+  configure-in-Settings hint; an empty clipboard keeps the sparkle-and-title header but shows
+  "copy a recipe first" below it; text over 100,000 chars and being offline each report via
+  snackbar and create nothing. A submit that
   gets past those guards but fails on the wire (bad token, unreachable service) becomes a
   `FAILED` row with Retry (R5.13) rather than vanishing. A plain tap on the button still
   opens the R8.10 create dialog, unchanged.
+  **Free text.** When a beta token is stored, the same long-press reveal also shows a
+  **"Free-text recipe"** option, also marked with the ai-sparkle glyph, above the clipboard card. Selecting it opens a **max-sized dialog**
+  (fills the screen, not the platform's narrow dialog width) with one large multi-line text
+  area for the user to type or paste a recipe, plus Cancel and Create. Create sends the text
+  to the **magic** extraction route (R2.10) — same guards (non-blank, ≤100,000 chars, online)
+  and same downstream flow as the clipboard paste: a `SUBMITTING` row (R8.16) appears
+  immediately and the dialog closes. A `FAILED` free-text extraction's Retry resubmits to the
+  magic route (R2.10, R4.8).
 - **R8.16** **Extraction status row.** Every row in `recipe_extractions` (R4.8) renders as a
   status row **pinned above the list** (above the Planned box, and still visible while
   searching — it is transient status, not list content), styled like the Planned card.
-  While in flight it shows a small spinner over a **pulsing** background (container color
-  alpha animating ~0.4↔1.0, ~800 ms per leg) — labeled "Sending to recipe service…" while
-  `SUBMITTING` (the POST can be held by a cold-started backend) and "Parsing recipe…" once
-  `PENDING`/`PROCESSING` — with a ✕ to **cancel**: the row is deleted locally and any late
+  While in flight it shows a small spinner plus a pulsing ai-sparkle glyph over a **pulsing**
+  background (container color alpha animating ~0.4↔1.0, ~800 ms per leg) — labeled "Sending
+  recipe…" while `SUBMITTING` (the POST can be held by a cold-started backend) and "Recipe
+  magic happening…" once `PENDING`/`PROCESSING` — with a ✕ to **cancel**: the row is deleted locally and any late
   result for it is dropped (R5.13); the backend job simply finishes unobserved. The row body
   itself is not tappable while in flight. On `COMPLETED` the pulse stops (steady `primaryContainer`) and the row shows
   the extracted title (fallback "Recipe ready") with a "Tap to review" caption — it **stays

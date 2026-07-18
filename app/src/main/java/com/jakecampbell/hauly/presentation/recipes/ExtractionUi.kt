@@ -9,6 +9,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +25,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -35,9 +37,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.jakecampbell.hauly.R
 import com.jakecampbell.hauly.domain.model.ExtractionStatus
 import com.jakecampbell.hauly.domain.model.RecipeExtraction
 import com.jakecampbell.hauly.presentation.common.longPressIris
@@ -125,11 +130,21 @@ fun ClipboardPreviewCard(
         ) {
             when (preview) {
                 is ClipPreview.Ready -> {
-                    Text(
-                        "Paste recipe from clipboard",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Image(
+                            painter = painterResource(R.drawable.ai_sparkle),
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            "Grab recipe from clipboard",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                     Text(
                         preview.text.trim(),
                         style = MaterialTheme.typography.bodySmall,
@@ -150,19 +165,71 @@ fun ClipboardPreviewCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
-                ClipPreview.Empty -> Text(
-                    "Clipboard is empty — copy a recipe first.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                ClipPreview.Empty -> {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Image(
+                            painter = painterResource(R.drawable.ai_sparkle),
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            "Grab recipe from clipboard",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    Text(
+                        "Clipboard is empty — copy a recipe first.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }
 }
 
 /**
+ * The "Free-text recipe" entry revealed alongside the clipboard peek on FAB long-press
+ * (R8.15). Tapping it opens the max-sized free-text dialog. Styled to match the
+ * clipboard preview card so the two read as one option cluster.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FreeTextOption(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shadowElevation = 6.dp,
+        onClick = onClick,
+        modifier = modifier,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Image(
+                painter = painterResource(R.drawable.ai_sparkle),
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                "Free-text recipe",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+}
+
+/**
  * One extraction's status, pinned above the recipe list (R8.16): a pulsing
- * "Parsing recipe…" while the backend works, the extracted title awaiting
+ * "Sending recipe…" while the submit POST is in flight, "Recipe magic
+ * happening…" while the backend processes it, the extracted title awaiting
  * review once done, or the failure reason with Retry/Dismiss.
  */
 @Composable
@@ -184,13 +251,20 @@ fun ExtractionRow(
                 color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = pulse),
             ) {
                 CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                Image(
+                    painter = painterResource(R.drawable.ai_sparkle),
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(18.dp)
+                        .alpha(pulse),
+                )
                 Text(
                     // A cold-started backend can hold the submit POST for tens
                     // of seconds, so say what's actually happening.
                     if (extraction.status == ExtractionStatus.SUBMITTING) {
-                        "Sending to recipe service…"
+                        "Sending recipe…"
                     } else {
-                        "Parsing recipe…"
+                        "Recipe magic happening…"
                     },
                     style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.weight(1f),

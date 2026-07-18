@@ -14,8 +14,10 @@ interface RecipeExtractionRepository {
      * holds the POST), upgrades to PENDING once the server assigns an id, and
      * becomes FAILED (with Retry available) if the submit can't get through.
      * Runs in the app scope so leaving the screen doesn't cancel the POST.
+     * [magic] routes free text to the backend's magic extractor (R8.15); the
+     * default is the pasted-source `extract` route.
      */
-    fun submit(text: String)
+    fun submit(text: String, magic: Boolean = false)
 
     /** Resubmit a failed extraction's stored source text as a new job. */
     fun retry(id: String)

@@ -2,6 +2,7 @@ package com.jakecampbell.hauly.presentation.recipes
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.heightIn
@@ -74,6 +75,8 @@ fun RecipesScreen(
     var showCreate by remember { mutableStateOf(false) }
     /** Clipboard peek revealed by long-pressing the FAB; null while hidden. */
     var clipPreview by remember { mutableStateOf<ClipPreview?>(null) }
+    /** Whether the max-sized free-text recipe dialog is open (R8.15). */
+    var showFreeText by remember { mutableStateOf(false) }
     /** Completed extraction being reviewed in the (prefilled) create dialog. */
     var prefillExtraction by remember { mutableStateOf<RecipeExtraction?>(null) }
     val clipboard = LocalClipboard.current
@@ -252,18 +255,41 @@ fun RecipesScreen(
             Icon(Icons.Filled.Add, contentDescription = "New recipe")
         }
 
+        // The long-press reveal: the clipboard peek, plus a "Free text" option
+        // above it whenever a beta token makes the backend flow available.
         clipPreview?.let { preview ->
-            ClipboardPreviewCard(
-                preview = preview,
-                onSubmit = { text ->
-                    viewModel.submitClipboard(text)
-                    clipPreview = null
-                },
+            Column(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(start = 32.dp, end = 16.dp, bottom = 88.dp),
-            )
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (state.hasBackendToken) {
+                    FreeTextOption(onClick = {
+                        clipPreview = null
+                        showFreeText = true
+                    })
+                }
+                ClipboardPreviewCard(
+                    preview = preview,
+                    onSubmit = { text ->
+                        viewModel.submitClipboard(text)
+                        clipPreview = null
+                    },
+                )
+            }
         }
+    }
+
+    if (showFreeText) {
+        RecipeFreeTextDialog(
+            onDismiss = { showFreeText = false },
+            onCreate = { text ->
+                viewModel.submitFreeText(text)
+                showFreeText = false
+            },
+        )
     }
 
     if (showCreate || prefillExtraction != null) {

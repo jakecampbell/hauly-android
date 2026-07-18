@@ -16,8 +16,8 @@ android {
         applicationId = "com.jakecampbell.hauly"
         minSdk = 26
         targetSdk = 36
-        versionCode = 8
-        versionName = "1.0.7"
+        versionCode = 9
+        versionName = "1.0.8"
 
         // The hauly-backend recipe-extraction service. The URL is fixed per
         // build; the beta token is user-entered and lives in DataStore (R2.9).

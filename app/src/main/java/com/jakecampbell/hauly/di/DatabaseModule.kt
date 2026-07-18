@@ -21,7 +21,7 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): HaulyDatabase =
         Room.databaseBuilder(context, HaulyDatabase::class.java, "hauly.db")
-            .addMigrations(HaulyDatabase.MIGRATION_8_9)
+            .addMigrations(HaulyDatabase.MIGRATION_8_9, HaulyDatabase.MIGRATION_9_10)
             .fallbackToDestructiveMigration(dropAllTables = true)
             .build()
 

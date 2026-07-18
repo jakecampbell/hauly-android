@@ -43,6 +43,14 @@ interface HaulyBackendApi {
     @POST("api/v1/recipes/extract")
     suspend fun submitExtraction(@Body body: ExtractRequest): ExtractSubmitResponse
 
+    /**
+     * The "magic" extractor: same contract as [submitExtraction] (202 + id, then
+     * polled via [extractionStatus]) but the backend builds the recipe from a
+     * free-text blob the user typed rather than pasted source (R8.15).
+     */
+    @POST("api/v1/recipes/extract/magic")
+    suspend fun submitMagicExtraction(@Body body: ExtractRequest): ExtractSubmitResponse
+
     @GET("api/v1/recipes/extractions/{id}")
     suspend fun extractionStatus(@Path("id") id: String): ExtractionStatusResponse
 }
