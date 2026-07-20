@@ -354,6 +354,14 @@ to it, and the Notion PAT must never be sent to it.
   synced trip rows are evicted from the cache (they're shopped, so they leave the active
   cache), and rows still awaiting sync simply lose the trip flag. The empty state shows only
   when both the active and trip lists are empty.
+- **R7.25** Tapping **Done** plays a **haul celebration** over the shopping area: a
+  firework-style burst of randomly angled dots and short lines radiating from the centre of
+  the screen — shooting out fast, easing off under a slight gravity droop, and twinkling out
+  at their own pace — with **"Nice Haul!"** swelling in front of the burst before it fades.
+  The dots/lines use the palette `#FFCA3A`, `#06AFFF`, `#FF06AF`, `#5D2E8C`, and a **short
+  device vibration** fires with it (requires the `VIBRATE` permission). It replaces the
+  trip-finished snackbar as the confirmation of a finished trip (R7.8). It is purely
+  presentational — an overlay that draws nothing when idle and never intercepts touches.
 
 ### 7.3 Add-item dialog (type-ahead)
 

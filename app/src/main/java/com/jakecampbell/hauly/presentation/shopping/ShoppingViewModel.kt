@@ -228,8 +228,9 @@ class ShoppingViewModel @Inject constructor(
     /** "Done" button: end the trip and discard the shopped-items tracking. */
     fun finishTrip() {
         viewModelScope.launch {
+            // No snackbar here: the haul celebration overlay (R7.25) is the
+            // confirmation of a finished trip.
             repository.finishTrip()
-            _messages.emit("Trip finished — nice haul!")
         }
     }
 

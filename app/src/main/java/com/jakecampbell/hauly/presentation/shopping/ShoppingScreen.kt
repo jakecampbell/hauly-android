@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -50,6 +51,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -93,6 +95,8 @@ fun ShoppingScreen(
     var storePickerItem by remember { mutableStateOf<ShoppingItem?>(null) }
     var tagPickerItem by remember { mutableStateOf<ShoppingItem?>(null) }
     var editItem by remember { mutableStateOf<ShoppingItem?>(null) }
+    // Bumped when "Done" ends a trip, firing the haul celebration (R7.25).
+    var celebrateTrigger by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
         viewModel.messages.collect { snackbarHostState.showSnackbar(it) }
@@ -106,7 +110,8 @@ fun ShoppingScreen(
             }
         },
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+        Column(modifier = Modifier.fillMaxSize()) {
             Text(
                 text = "Get your haul! :)",
                 style = MaterialTheme.typography.titleLarge,
@@ -160,12 +165,18 @@ fun ShoppingScreen(
                     onOrderPersist = viewModel::persistOrder,
                     onDiscard = viewModel::discard,
                     onUnshop = viewModel::unshop,
-                    onFinishTrip = viewModel::finishTrip,
+                    onFinishTrip = {
+                        celebrateTrigger++
+                        viewModel.finishTrip()
+                    },
                     onToggleHistory = viewModel::toggleHistory,
                     onLoadMoreHistory = viewModel::loadMoreHistory,
                     onAddFromHistory = viewModel::addFromHistory,
                 )
             }
+        }
+
+            HaulCelebration(trigger = celebrateTrigger)
         }
     }
 

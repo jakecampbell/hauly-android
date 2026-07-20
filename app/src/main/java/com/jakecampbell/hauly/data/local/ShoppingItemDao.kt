@@ -40,8 +40,16 @@ interface ShoppingItemDao {
     )
     suspend fun deleteSyncedTripRows()
 
-    @Query("UPDATE shopping_items SET trip_shopped = 0 WHERE trip_shopped = 1")
-    suspend fun clearTripFlags()
+    /**
+     * Bumps `updated_at`: clearing the trip flag is a user-facing write (the
+     * "Done" tap), so it must move the optimistic-concurrency clock like every
+     * other edit. Otherwise a flush whose network call is still in flight would
+     * see the row "unchanged" on its guarded write-back ([upsertIfUnchanged])
+     * and resurrect the pre-Done snapshot — trip flag and all — dropping the
+     * item back into the trip section when the call finishes.
+     */
+    @Query("UPDATE shopping_items SET trip_shopped = 0, updated_at = :now WHERE trip_shopped = 1")
+    suspend fun clearTripFlags(now: Long)
 
     /**
      * End the shopping trip: discard local tracking of shopped items. Synced
@@ -52,7 +60,7 @@ interface ShoppingItemDao {
     @Transaction
     suspend fun finishTrip() {
         deleteSyncedTripRows()
-        clearTripFlags()
+        clearTripFlags(System.currentTimeMillis())
     }
 
     /**
