@@ -732,7 +732,8 @@ to it, and the Notion PAT must never be sent to it.
   "off" transition debounced (~300 ms) so back-to-back requests don't flicker.
 - **R9.3** Dark theme only. Accent color is **blue `#06AFFF`** (primary), with a deep-blue
   container (`#0E3A52`) and dark ink surfaces (`#101314` family); errors in an ember/red tone.
-  No green accents anywhere.
+  No green accents anywhere. The full canonical palette is specified in **R9.7**; every color
+  used anywhere in the app must be drawn from it.
 - **R9.4** The app icon is an adaptive icon built from the Hauly artwork on a solid `#06AFFF`
   background, with the glyph padded to sit inside the adaptive-icon safe zone (~61% of
   canvas). The same artwork appears as the logo on the onboarding screen.
@@ -744,6 +745,42 @@ to it, and the Notion PAT must never be sent to it.
   large screens (smallest width >= 600 dp), so the lock is effective on phones only; state
   that survives rotation (e.g. the open-recipe id, R8.1) must still be preserved, since
   process death and large-screen rotation can both still occur.
+- **R9.7** **Canonical Hauly color palette.** All UI color must come from this palette — no
+  ad-hoc hex values in composables. It is dark-first (R9.3), built on near-black ink surfaces
+  with blue as the primary accent. Colors are defined in
+  `presentation/theme/Theme.kt` (private `Color` vals feeding a `darkColorScheme`); the token
+  name below is that val's name where one exists.
+
+  **Brand palette (the five defining Hauly colors):**
+
+  | Hex | Name | Role |
+  | --- | --- | --- |
+  | `#101314` | Ink | Base background / surface (near-black) |
+  | `#5D2E8C` | Violet | Extended brand accent (secondary/decorative) |
+  | `#FF06AF` | Magenta | Extended brand accent (secondary/decorative) |
+  | `#FFCA3A` | Gold | Extended brand accent (secondary/decorative) |
+  | `#06AFFF` | HaulyBlue | Primary accent (matches the app icon, R9.4) |
+
+  **Supporting palette (currently defined in `Theme.kt`):**
+
+  | Hex | Token | Role |
+  | --- | --- | --- |
+  | `#1A1E20` | InkRaised | Raised surface (`surfaceVariant`, `surfaceContainer`) |
+  | `#24292C` | InkHigh | Highest surface (`surfaceContainerHigh/Highest`, `secondaryContainer`) |
+  | `#E4E7E8` | Mist | Primary text/icons (`onBackground`, `onSurface`) |
+  | `#9AA4A8` | MistDim | Secondary text (`secondary`, `onSurfaceVariant`) |
+  | `#0E3A52` | HaulyBlueDeep | Primary container (deep blue) |
+  | `#00253A` | — | `onPrimary` (text/icon on the blue accent) |
+  | `#F28B82` | Ember | Error tone (`error`) |
+  | `#3A100C` | — | `onError` |
+  | `#3A4145` | — | `outline` |
+  | `#2A3034` | — | `outlineVariant` |
+
+  The three extended brand accents (Violet `#5D2E8C`, Magenta `#FF06AF`, Gold `#FFCA3A`) are
+  brand-defined but **not yet wired into the `darkColorScheme` in `Theme.kt`**; blue remains the
+  sole primary UI accent (R9.3). When any of them is introduced into the UI, add it as a named
+  `Color` val in `Theme.kt` and map it through the theme rather than hard-coding the hex at the
+  call site.
 
 ---
 
