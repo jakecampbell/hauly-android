@@ -9,6 +9,8 @@ import com.jakecampbell.hauly.domain.model.RecipeExtraction
 import com.jakecampbell.hauly.domain.model.RecipeSort
 import com.jakecampbell.hauly.domain.repository.RecipeExtractionRepository
 import com.jakecampbell.hauly.domain.repository.RecipeRepository
+import com.jakecampbell.hauly.presentation.recipes.cook.CookModeController
+import com.jakecampbell.hauly.presentation.recipes.cook.CookSession
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,6 +46,8 @@ data class RecipesUiState(
     val hasLoaded: Boolean = false,
     /** In-flight and finished-but-unreviewed clipboard extractions, oldest first. */
     val extractions: List<RecipeExtraction> = emptyList(),
+    /** Recipes currently in cook mode, shown pinned at the top (R8.18). */
+    val cooking: List<CookSession> = emptyList(),
     /** Whether a hauly-backend beta token is stored — gates the clipboard flow. */
     val hasBackendToken: Boolean = false,
 ) {
@@ -60,6 +64,7 @@ data class RecipesUiState(
 class RecipesViewModel @Inject constructor(
     private val repository: RecipeRepository,
     private val extractionRepository: RecipeExtractionRepository,
+    cookMode: CookModeController,
     settings: SettingsRepository,
     connectivityObserver: ConnectivityObserver,
 ) : ViewModel() {
@@ -108,6 +113,10 @@ class RecipesViewModel @Inject constructor(
         }
         .combine(settings.hasBackendToken) { state, hasToken ->
             state.copy(hasBackendToken = hasToken)
+        }
+        .combine(cookMode.sessions) { state, sessions ->
+            // Sorted by name so the pinned Cooking section has a stable order.
+            state.copy(cooking = sessions.values.sortedBy { it.recipeName.lowercase() })
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RecipesUiState())
 

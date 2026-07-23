@@ -12,6 +12,9 @@ import com.jakecampbell.hauly.domain.model.ShoppingItem
 import com.jakecampbell.hauly.domain.repository.RecipeRepository
 import com.jakecampbell.hauly.domain.repository.ShoppingRepository
 import com.jakecampbell.hauly.domain.usecase.AddIngredientToList
+import com.jakecampbell.hauly.presentation.recipes.cook.CookModeController
+import com.jakecampbell.hauly.presentation.recipes.cook.CookSession
+import com.jakecampbell.hauly.presentation.recipes.cook.TimerKey
 import com.jakecampbell.hauly.presentation.shopping.AddItemController
 import com.jakecampbell.hauly.presentation.shopping.AddItemUiState
 import dagger.assisted.Assisted
@@ -25,6 +28,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -51,6 +55,7 @@ class RecipeDetailViewModel @AssistedInject constructor(
     private val repository: RecipeRepository,
     private val shoppingRepository: ShoppingRepository,
     private val addIngredientToList: AddIngredientToList,
+    private val cookMode: CookModeController,
     connectivityObserver: ConnectivityObserver,
 ) : ViewModel() {
 
@@ -109,6 +114,15 @@ class RecipeDetailViewModel @AssistedInject constructor(
             isOnline = extra.online,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RecipeDetailUiState())
+
+    /**
+     * This recipe's live cook session (R8.18), or null when not in cook mode. Held
+     * app-scoped in [cookMode] so it and its timers survive this ViewModel being
+     * disposed after the user leaves the screen.
+     */
+    val cookSession: StateFlow<CookSession?> = cookMode.sessions
+        .map { it[recipeId] }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     init {
         // Instructions render from cache immediately; fetch the latest blocks
@@ -234,6 +248,32 @@ class RecipeDetailViewModel @AssistedInject constructor(
             }
         }
     }
+
+    // --- Cook mode (R8.18) ---
+
+    /**
+     * Frying-pan toggle on the Instructions header: enter/leave cook mode.
+     * Entering also clears every strike on the recipe as a fresh-start "reset"
+     * (R8.18).
+     */
+    fun toggleCookMode() {
+        val recipe = uiState.value.recipe ?: return
+        val turningOn = cookSession.value == null
+        cookMode.toggle(recipe.id, recipe.name)
+        if (turningOn) {
+            viewModelScope.launch { repository.clearLineMarks(recipe.id) }
+        }
+    }
+
+    /** Long-press a step in cook mode: show/hide that step's timer. */
+    fun toggleStepTimer(lineIndex: Int) = cookMode.toggleStepTimer(recipeId, lineIndex)
+
+    fun timerStartPause(key: TimerKey) = cookMode.startPause(recipeId, key)
+
+    fun timerReset(key: TimerKey) = cookMode.reset(recipeId, key)
+
+    fun timerSetDuration(key: TimerKey, durationMs: Long) =
+        cookMode.setDuration(recipeId, key, durationMs)
 
     // --- Add-ingredient dialog (shared controller) ---
 

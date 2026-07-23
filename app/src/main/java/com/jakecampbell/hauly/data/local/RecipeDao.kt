@@ -126,6 +126,10 @@ interface RecipeDao {
     @Query("DELETE FROM recipe_line_marks WHERE recipe_id = :recipeId AND section = :section")
     suspend fun clearMarks(recipeId: String, section: String)
 
+    /** Clear every strike on a recipe — used as the cook-mode "reset" (R8.18). */
+    @Query("DELETE FROM recipe_line_marks WHERE recipe_id = :recipeId")
+    suspend fun clearAllMarks(recipeId: String)
+
     // --- Blocks ---
 
     @Query("SELECT * FROM recipe_blocks WHERE recipe_id = :recipeId ORDER BY order_index")

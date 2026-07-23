@@ -23,6 +23,14 @@ private val HaulyBlue = Color(0xFF06AFFF)
 private val HaulyBlueDeep = Color(0xFF0E3A52)
 private val Ember = Color(0xFFF28B82)
 
+/**
+ * Cook-mode accent (R8.18). A vivid magenta, deliberately distinct from the blue
+ * brand accent, used to mark the pinned "Cooking" section and active step timers.
+ * [CookMagentaContainer] is its dim, dark-surface-friendly fill.
+ */
+val CookMagenta = Color(0xFFE0218A)
+val CookMagentaContainer = Color(0xFF3A0E24)
+
 private val HaulyColors = darkColorScheme(
     primary = HaulyBlue,
     onPrimary = Color(0xFF00253A),

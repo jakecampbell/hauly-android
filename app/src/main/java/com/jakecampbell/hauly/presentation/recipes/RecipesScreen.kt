@@ -55,15 +55,20 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.jakecampbell.hauly.R
 import com.jakecampbell.hauly.domain.model.Recipe
 import com.jakecampbell.hauly.domain.model.RecipeExtraction
 import com.jakecampbell.hauly.domain.model.RecipeSort
 import com.jakecampbell.hauly.presentation.common.EmptyState
 import com.jakecampbell.hauly.presentation.common.OfflineBanner
+import com.jakecampbell.hauly.presentation.recipes.cook.CookSession
+import com.jakecampbell.hauly.presentation.theme.CookMagenta
+import com.jakecampbell.hauly.presentation.theme.CookMagentaContainer
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -160,6 +165,12 @@ fun RecipesScreen(
 
         if (!state.isOnline) {
             OfflineBanner(pendingEdits = 0)
+        }
+
+        // Recipes in cook mode stay pinned at the very top (R8.18), above even
+        // the extraction rows — an active cook is the most time-sensitive thing.
+        if (state.cooking.isNotEmpty()) {
+            CookingBox(sessions = state.cooking, onRecipeClick = onRecipeClick)
         }
 
         // In-flight clipboard extractions stay pinned above the list — even
@@ -373,6 +384,64 @@ private fun PlannedBox(recipes: List<Recipe>, onRecipeClick: (String) -> Unit) {
                     if (index < recipes.lastIndex) {
                         HorizontalDivider(
                             color = MaterialTheme.colorScheme.outlineVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Recipes currently in cook mode (R8.18), pinned at the top in a magenta-accented
+ * box. Each row opens that recipe (where its timers live). Cook mode is toggled
+ * off from inside the recipe, not here.
+ */
+@Composable
+private fun CookingBox(sessions: List<CookSession>, onRecipeClick: (String) -> Unit) {
+    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text(
+            text = "Cooking",
+            style = MaterialTheme.typography.titleMedium,
+            color = CookMagenta,
+            modifier = Modifier.padding(start = 4.dp, bottom = 6.dp),
+        )
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = CookMagentaContainer,
+            border = BorderStroke(1.dp, CookMagenta.copy(alpha = 0.5f)),
+        ) {
+            Column {
+                sessions.forEachIndexed { index, session ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onRecipeClick(session.recipeId) }
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_frying_pan),
+                            contentDescription = null,
+                            tint = CookMagenta,
+                            modifier = Modifier.width(20.dp).padding(end = 4.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = session.recipeName,
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Icon(
+                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = CookMagenta,
+                        )
+                    }
+                    if (index < sessions.lastIndex) {
+                        HorizontalDivider(
+                            color = CookMagenta.copy(alpha = 0.25f),
                             modifier = Modifier.padding(horizontal = 16.dp),
                         )
                     }

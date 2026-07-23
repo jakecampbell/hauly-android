@@ -37,6 +37,9 @@ interface RecipeRepository {
     /** Toggle a single line's struck state (local-only). */
     suspend fun toggleLineMark(recipeId: String, section: RecipeSection, lineIndex: Int)
 
+    /** Clear every struck line on a recipe (local-only); the cook-mode reset. */
+    suspend fun clearLineMarks(recipeId: String)
+
     /**
      * Edit the recipe's ingredient/instruction text or rename it. Offline-safe:
      * queued as PENDING_UPDATE and flushed by the sync worker. Editing a text

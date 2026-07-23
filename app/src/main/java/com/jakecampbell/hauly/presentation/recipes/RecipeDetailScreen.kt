@@ -5,6 +5,7 @@ import android.content.Intent
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -76,9 +78,21 @@ import com.jakecampbell.hauly.domain.repository.RecipeRepository
 import com.jakecampbell.hauly.presentation.common.SwipeDirection
 import com.jakecampbell.hauly.presentation.common.SwipeToRevealBox
 import com.jakecampbell.hauly.presentation.common.longPressIris
+import com.jakecampbell.hauly.presentation.recipes.cook.CookSession
+import com.jakecampbell.hauly.presentation.recipes.cook.CookTimerRow
+import com.jakecampbell.hauly.presentation.recipes.cook.TimerKey
+import com.jakecampbell.hauly.presentation.theme.CookMagenta
 import com.jakecampbell.hauly.presentation.shopping.AddItemDialog
 import com.jakecampbell.hauly.presentation.shopping.EditItemDialog
 import com.jakecampbell.hauly.presentation.shopping.formatQuantity
+
+/**
+ * The LazyColumn index of the Instructions section while cook mode is active: the
+ * "cooking" banner (0), the source-link row (1) and the Ingredients section (2)
+ * precede it, with the Shopping list hidden. Used to scroll it into view on
+ * activation (R8.18).
+ */
+private const val INSTRUCTIONS_ITEM_INDEX_WHILE_COOKING = 3
 
 /**
  * Recipe view/edit. Four content sections: the Shopping list (the linked
@@ -101,6 +115,8 @@ fun RecipeDetailScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val addState by viewModel.addState.collectAsStateWithLifecycle()
+    /** This recipe's cook session while in cook mode (R8.18); null otherwise. */
+    val cookSession by viewModel.cookSession.collectAsStateWithLifecycle()
     var editItem by remember { mutableStateOf<ShoppingItem?>(null) }
     // Which text section is being edited, and the working text for it.
     var editingSection by remember { mutableStateOf<RecipeSection?>(null) }
@@ -108,6 +124,19 @@ fun RecipeDetailScreen(
     var showRename by remember { mutableStateOf(false) }
     var showUrlDialog by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+
+    // On *activating* cook mode the shopping list collapses away, so bring the
+    // Instructions header to the top (R8.18). Fires only on the off→on transition,
+    // not when reopening an already-cooking recipe.
+    val cooking = cookSession != null
+    var wasCooking by remember { mutableStateOf(cooking) }
+    LaunchedEffect(cooking) {
+        if (cooking && !wasCooking) {
+            listState.animateScrollToItem(INSTRUCTIONS_ITEM_INDEX_WHILE_COOKING)
+        }
+        wasCooking = cooking
+    }
 
     LaunchedEffect(Unit) {
         viewModel.messages.collect { snackbarHostState.showSnackbar(it) }
@@ -165,26 +194,41 @@ fun RecipeDetailScreen(
             modifier = Modifier.fillMaxSize(),
         ) {
             LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
                     start = 16.dp, end = 16.dp, bottom = 32.dp,
                 ),
             ) {
-                // --- Planned ("make it") toggle ---
+                // --- Planned ("make it") toggle — becomes a "cooking" banner
+                //     while in cook mode (R8.18) ---
                 item {
-                    val planned = state.recipe?.planned == true
-                    FilledTonalButton(
-                        onClick = viewModel::togglePlanned,
-                        enabled = state.recipe != null,
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                    ) {
-                        Icon(
-                            imageVector = if (planned) Icons.Default.EventBusy
-                            else Icons.Default.EventAvailable,
-                            contentDescription = null,
-                            modifier = Modifier.padding(end = 8.dp),
+                    if (cookSession != null) {
+                        Text(
+                            text = "cooking",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = CookMagenta,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp, bottom = 4.dp)
+                                .padding(vertical = 10.dp),
                         )
-                        Text(if (planned) "Don't make it" else "Make it")
+                    } else {
+                        val planned = state.recipe?.planned == true
+                        FilledTonalButton(
+                            onClick = viewModel::togglePlanned,
+                            enabled = state.recipe != null,
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        ) {
+                            Icon(
+                                imageVector = if (planned) Icons.Default.EventBusy
+                                else Icons.Default.EventAvailable,
+                                contentDescription = null,
+                                modifier = Modifier.padding(end = 8.dp),
+                            )
+                            Text(if (planned) "Don't make it" else "Make it")
+                        }
                     }
                 }
 
@@ -197,43 +241,46 @@ fun RecipeDetailScreen(
                     )
                 }
 
-                // --- Shopping list (linked ingredient items) ---
-                item {
-                    Text(
-                        "Shopping",
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
-                    )
-                }
-                if (state.ingredients.isEmpty()) {
+                // --- Shopping list (linked ingredient items) — hidden while
+                //     cooking, where shopping is irrelevant (R8.18) ---
+                if (cookSession == null) {
                     item {
                         Text(
-                            "No linked ingredients cached. Add one below.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            "Shopping",
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
                         )
                     }
-                }
-                items(state.ingredients, key = { it.localId }) { ingredient ->
-                    SwipeToUnlinkBox(onUnlink = { viewModel.removeFromRecipe(ingredient) }) {
-                        ShoppingItemRow(
-                            ingredient = ingredient,
-                            onToggleShopped = { viewModel.toggleShopped(ingredient) },
-                            onLongPress = { editItem = ingredient },
-                        )
+                    if (state.ingredients.isEmpty()) {
+                        item {
+                            Text(
+                                "No linked ingredients cached. Add one below.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
-                }
-                item {
-                    TextButton(
-                        onClick = viewModel::openAddDialog,
-                        modifier = Modifier.padding(vertical = 4.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.Add,
-                            contentDescription = null,
-                            modifier = Modifier.padding(end = 8.dp),
-                        )
-                        Text("add item")
+                    items(state.ingredients, key = { it.localId }) { ingredient ->
+                        SwipeToUnlinkBox(onUnlink = { viewModel.removeFromRecipe(ingredient) }) {
+                            ShoppingItemRow(
+                                ingredient = ingredient,
+                                onToggleShopped = { viewModel.toggleShopped(ingredient) },
+                                onLongPress = { editItem = ingredient },
+                            )
+                        }
+                    }
+                    item {
+                        TextButton(
+                            onClick = viewModel::openAddDialog,
+                            modifier = Modifier.padding(vertical = 4.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.Add,
+                                contentDescription = null,
+                                modifier = Modifier.padding(end = 8.dp),
+                            )
+                            Text("add item")
+                        }
                     }
                 }
 
@@ -271,8 +318,9 @@ fun RecipeDetailScreen(
                     }
                 }
 
-                // --- Instructions (editable text) ---
+                // --- Instructions (editable text; cook mode adds timers) ---
                 item {
+                    val session = cookSession
                     Column {
                         SectionEditHeader(
                             title = "Instructions",
@@ -281,9 +329,24 @@ fun RecipeDetailScreen(
                                 editText = state.recipe?.instructions.orEmpty()
                                 editingSection = RecipeSection.INSTRUCTIONS
                             },
+                            // Frying-pan cook-mode toggle, Instructions only (R8.18).
+                            cooking = session != null,
+                            onCookToggle = if (state.recipe != null) viewModel::toggleCookMode else null,
                         )
-                        if (editingSection == RecipeSection.INSTRUCTIONS) {
-                            SectionEditor(
+                        // The overall timer is always visible in cook mode, under
+                        // the heading (R8.20).
+                        if (session != null) {
+                            CookTimerRow(
+                                timer = session.overall,
+                                key = TimerKey.Overall,
+                                onStartPause = viewModel::timerStartPause,
+                                onReset = viewModel::timerReset,
+                                onSetTime = viewModel::timerSetDuration,
+                                modifier = Modifier.padding(bottom = 4.dp),
+                            )
+                        }
+                        when {
+                            editingSection == RecipeSection.INSTRUCTIONS -> SectionEditor(
                                 value = editText,
                                 onValueChange = { editText = it },
                                 onSave = {
@@ -292,8 +355,20 @@ fun RecipeDetailScreen(
                                 },
                                 onCancel = { editingSection = null },
                             )
-                        } else {
-                            TextLines(
+
+                            session != null -> CookInstructions(
+                                text = state.recipe?.instructions.orEmpty(),
+                                struck = state.struckLines[RecipeSection.INSTRUCTIONS].orEmpty(),
+                                session = session,
+                                emptyHint = "No instructions yet — tap the pencil to add.",
+                                onToggleLine = { viewModel.toggleLine(RecipeSection.INSTRUCTIONS, it) },
+                                onStepLongPress = viewModel::toggleStepTimer,
+                                onStartPause = viewModel::timerStartPause,
+                                onReset = viewModel::timerReset,
+                                onSetTime = viewModel::timerSetDuration,
+                            )
+
+                            else -> TextLines(
                                 text = state.recipe?.instructions.orEmpty(),
                                 struck = state.struckLines[RecipeSection.INSTRUCTIONS].orEmpty(),
                                 ruled = false,
@@ -461,9 +536,19 @@ private fun openUrl(context: Context, raw: String) {
     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, normalized.toUri())) }
 }
 
-/** Section title with a trailing edit (pencil) affordance. */
+/**
+ * Section title with a trailing edit (pencil) affordance. When [onCookToggle] is
+ * supplied (Instructions only), a frying-pan button toggles cook mode (R8.18),
+ * tinted magenta while [cooking].
+ */
 @Composable
-private fun SectionEditHeader(title: String, enabled: Boolean, onEdit: () -> Unit) {
+private fun SectionEditHeader(
+    title: String,
+    enabled: Boolean,
+    onEdit: () -> Unit,
+    cooking: Boolean = false,
+    onCookToggle: (() -> Unit)? = null,
+) {
     var showHeadingHelp by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
@@ -474,6 +559,18 @@ private fun SectionEditHeader(title: String, enabled: Boolean, onEdit: () -> Uni
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.weight(1f),
         )
+        if (onCookToggle != null) {
+            // Larger than the help/edit icons — cook mode is the section's
+            // primary action, so it reads as the more prominent affordance.
+            IconButton(onClick = onCookToggle, modifier = Modifier.size(48.dp)) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_frying_pan),
+                    contentDescription = if (cooking) "Stop cook mode" else "Start cook mode",
+                    tint = if (cooking) CookMagenta else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(30.dp),
+                )
+            }
+        }
         // Explains the `--` sub-heading convention this section supports.
         IconButton(onClick = { showHeadingHelp = true }, modifier = Modifier.size(36.dp)) {
             Icon(
@@ -622,6 +719,85 @@ private fun SectionHeading(text: String) {
             )
             .padding(horizontal = 10.dp, vertical = 8.dp),
     )
+}
+
+/**
+ * The Instructions list while in cook mode (R8.18). Like [TextLines] (tap to
+ * strike a step, `--` headings honoured) but each step can also be long-pressed
+ * to reveal its own timer (R8.19). A step that has a timer is wrapped in a magenta
+ * outline, bounding the step and its timer together, with the timer below the
+ * step text.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun CookInstructions(
+    text: String,
+    struck: Set<Int>,
+    session: CookSession,
+    emptyHint: String,
+    onToggleLine: (Int) -> Unit,
+    onStepLongPress: (Int) -> Unit,
+    onStartPause: (TimerKey) -> Unit,
+    onReset: (TimerKey) -> Unit,
+    onSetTime: (TimerKey, Long) -> Unit,
+) {
+    val lines = text.split("\n")
+    if (lines.none { it.isNotBlank() }) {
+        Text(
+            text = emptyHint,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(vertical = 4.dp),
+        )
+        return
+    }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        lines.forEachIndexed { index, line ->
+            if (line.isBlank()) return@forEachIndexed
+            if (line.trimStart().startsWith("--")) {
+                SectionHeading(text = line.trimStart().removePrefix("--").trim())
+                return@forEachIndexed
+            }
+            val timer = session.steps[index]
+            val isStruck = index in struck
+            // A step with a timer gets a magenta bounding box around step + timer.
+            val boxModifier = if (timer != null) {
+                Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+                    .border(1.5.dp, CookMagenta, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 8.dp)
+            } else {
+                Modifier.fillMaxWidth()
+            }
+            Column(modifier = boxModifier) {
+                Text(
+                    text = line,
+                    style = MaterialTheme.typography.bodyLarge,
+                    textDecoration = if (isStruck) TextDecoration.LineThrough else null,
+                    color = if (isStruck) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    else MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .combinedClickable(
+                            onClick = { onToggleLine(index) },
+                            onLongClick = { onStepLongPress(index) },
+                        )
+                        .padding(vertical = 10.dp),
+                )
+                if (timer != null) {
+                    CookTimerRow(
+                        timer = timer,
+                        key = TimerKey.Step(index),
+                        onStartPause = onStartPause,
+                        onReset = onReset,
+                        onSetTime = onSetTime,
+                        modifier = Modifier.padding(bottom = 6.dp),
+                    )
+                }
+            }
+        }
+    }
 }
 
 /**

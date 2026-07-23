@@ -25,6 +25,8 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -33,7 +35,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -41,6 +47,10 @@ import androidx.navigation.compose.rememberNavController
 import com.jakecampbell.hauly.presentation.onboarding.OnboardingScreen
 import com.jakecampbell.hauly.presentation.recipes.RecipeDetailScreen
 import com.jakecampbell.hauly.presentation.recipes.RecipesScreen
+import com.jakecampbell.hauly.presentation.recipes.cook.CookModeViewModel
+import com.jakecampbell.hauly.presentation.recipes.cook.playTimerSound
+import com.jakecampbell.hauly.presentation.recipes.cook.startTimerVibration
+import com.jakecampbell.hauly.presentation.recipes.cook.stopTimerVibration
 import com.jakecampbell.hauly.presentation.settings.SettingsScreen
 import com.jakecampbell.hauly.presentation.shopping.ShoppingScreen
 import androidx.compose.runtime.getValue
@@ -77,6 +87,28 @@ fun HaulyNavHost(startConfigured: Boolean, networkBusy: Boolean) {
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+
+    // Cook mode (R8.18): keep the screen awake while any recipe is cooking, and
+    // sound/vibrate the alarm when a countdown finishes — both regardless of which
+    // page the user is on, so this lives high up here.
+    val cookViewModel: CookModeViewModel = hiltViewModel()
+    val anyCooking by cookViewModel.anyCooking.collectAsStateWithLifecycle()
+    val view = LocalView.current
+    DisposableEffect(anyCooking) {
+        view.keepScreenOn = anyCooking
+        onDispose { view.keepScreenOn = false }
+    }
+    val appContext = LocalContext.current
+    // The notification tone plays once per completion...
+    LaunchedEffect(Unit) {
+        cookViewModel.completions.collect { playTimerSound(appContext) }
+    }
+    // ...while the vibration runs continuously until every finished timer is reset (R8.20).
+    val anyFinished by cookViewModel.anyFinished.collectAsStateWithLifecycle()
+    DisposableEffect(anyFinished) {
+        if (anyFinished) startTimerVibration(appContext)
+        onDispose { stopTimerVibration(appContext) }
+    }
 
     // Swipe position for the two list tabs, hoisted so the bottom bar (kept in
     // the Scaffold so snackbars sit above it) and the pager stay in sync.

@@ -717,6 +717,50 @@ to it, and the Notion PAT must never be sent to it.
   create (R8.10, including opening the new recipe) and deletes the extraction row; cancelling
   keeps the row for later.
 
+### 8.x Cook mode
+
+- **R8.18** **Cook mode (toggle, persistence, keep-awake, pinned list).** The Instructions
+  header carries a **frying-pan toggle button** (next to the help/edit icons, Instructions only)
+  that turns **cook mode** on/off for that recipe. Cook mode is **app-scoped, in-memory session
+  state**, held in an app-`@Singleton` `CookModeController` — **not** Room, Notion, or the sync
+  queue: timers are transient runtime state, so a session survives leaving the recipe screen
+  (navigating away, swiping to Shopping, visiting Settings) but is **lost on process death**,
+  which is acceptable for a live stopwatch. While **any** recipe is in cook mode the **screen is
+  kept awake** (`keepScreenOn`, applied once at the navigation-host root). Each cooking recipe
+  appears as a **magenta-highlighted row in a top-pinned "Cooking" section** of the Recipes list
+  (above even the extraction rows, R8.16); tapping a row opens that recipe. Cook mode uses a
+  dedicated **magenta accent** (`CookMagenta`), deliberately distinct from the blue brand accent.
+  **On entering** cook mode, **all Ingredients/Instructions strikes (R8.8) are cleared** as a
+  fresh-start reset. **While** cook mode is active on a recipe, the detail screen adapts: the
+  **Shopping list section is hidden** (linked items, its header, and "add item" — shopping is
+  irrelevant mid-cook), and the **"Make it"/"Don't make it" planned toggle (R8.6) is replaced by
+  the word "cooking" in magenta**. On the moment of **activation** (the off→on transition, not when
+  reopening an already-cooking recipe) the detail **auto-scrolls the Instructions header to the
+  top**, since the collapsing shopping list would otherwise leave the view mid-list.
+- **R8.19** **Overall & per-step timers.** A cook session has **one overall timer**, always
+  visible directly **under the Instructions heading** while in cook mode, plus **optional
+  per-step timers**. A step timer appears only after a **long-press on that step** (a step is a
+  non-blank, non-`--`-heading instruction line, keyed by its raw line index — the same index used
+  for strike tracking, R8.8); long-pressing a step that already has a timer removes it. A step
+  that has a timer is drawn inside a **magenta outline** that bounds the step text and its timer
+  together, with the timer **below** the step text. Tapping a step still toggles its strike
+  (R8.8) as in normal view.
+- **R8.20** **Timer/stopwatch UX.** Every timer is a **single-line** control laid out as
+  `reset | time | start-pause`, all **icon** buttons, time shown as **MM:SS** (minutes may exceed
+  59). Mode is fixed by the value when **Start** is pressed: **0 ⇒ stopwatch** (counts up), a
+  positive set value **⇒ countdown timer**. Start/Pause toggles running; while **running only
+  Pause is enabled** (reset and the time fields are locked to prevent an accidental wipe). When not
+  running the **minutes and seconds are edited inline** — tapping either segment selects it and the
+  user types the value straight into the timer (no dialog); each edit commits immediately, and 0/0
+  leaves it a stopwatch. **Reset** returns a stopwatch to
+  0 and a timer to its set value; resetting an already-idle timer **a second time** — or setting
+  it to 0 by hand — drops it back to **stopwatch** mode. A countdown that **reaches zero**
+  auto-pauses at 0 and fires an alert: the default notification **tone plays once**, and a
+  **continuous vibration** plus a **magenta flash** on the row run **until the timer is reset**
+  (the vibration loops while *any* finished timer is unacknowledged, and stops once all are
+  reset). Completion is detected by the controller (a monitor loop) so the alert fires even when
+  the timer's UI is off-screen.
+
 ---
 
 ## 9. Global UI, Theme & Branding

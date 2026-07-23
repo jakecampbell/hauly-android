@@ -67,6 +67,10 @@ class RecipeRepositoryImpl @Inject constructor(
         recipeDao.toggleMark(recipeId, section.name, lineIndex)
     }
 
+    override suspend fun clearLineMarks(recipeId: String) {
+        recipeDao.clearAllMarks(recipeId)
+    }
+
     override suspend fun saveIngredients(recipeId: String, text: String) {
         updateContent(recipeId, clearSection = RecipeSection.INGREDIENTS) { it.copy(ingredients = text) }
     }
