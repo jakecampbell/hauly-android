@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -24,6 +25,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckBox
 import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
@@ -35,6 +37,7 @@ import androidx.compose.material.icons.filled.EventBusy
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
@@ -294,6 +297,7 @@ fun RecipeDetailScreen(
                                 text = state.recipe?.instructions.orEmpty(),
                                 struck = state.struckLines[RecipeSection.INSTRUCTIONS].orEmpty(),
                                 ruled = false,
+                                supportHeadings = true,
                                 emptyHint = "No instructions yet — tap the pencil to add.",
                                 onToggle = { viewModel.toggleLine(RecipeSection.INSTRUCTIONS, it) },
                             )
@@ -460,6 +464,7 @@ private fun openUrl(context: Context, raw: String) {
 /** Section title with a trailing edit (pencil) affordance. */
 @Composable
 private fun SectionEditHeader(title: String, enabled: Boolean, onEdit: () -> Unit) {
+    var showHeadingHelp by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -469,14 +474,50 @@ private fun SectionEditHeader(title: String, enabled: Boolean, onEdit: () -> Uni
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.weight(1f),
         )
-        IconButton(enabled = enabled, onClick = onEdit) {
+        // Explains the `--` sub-heading convention this section supports.
+        IconButton(onClick = { showHeadingHelp = true }, modifier = Modifier.size(36.dp)) {
+            Icon(
+                Icons.AutoMirrored.Filled.HelpOutline,
+                contentDescription = "About sub-headings",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        IconButton(enabled = enabled, onClick = onEdit, modifier = Modifier.size(36.dp)) {
             Icon(
                 Icons.Default.Edit,
                 contentDescription = "Edit $title",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
             )
         }
     }
+    if (showHeadingHelp) {
+        SubheadingHelpDialog(onDismiss = { showHeadingHelp = false })
+    }
+}
+
+/**
+ * Explains the `--` sub-heading convention (R8.7) shared by the Ingredients and
+ * Instructions sections, reached from the help icon on either header.
+ */
+@Composable
+private fun SubheadingHelpDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Sub-headings") },
+        text = {
+            Text(
+                "Start any line with \"--\" to make it a sub-heading. The \"--\" is hidden and " +
+                    "the line becomes a label that groups the lines beneath it — handy for " +
+                    "splitting a recipe into parts (say, \"--For the sauce\"). Sub-heading lines " +
+                    "are labels only: they can't be checked off.",
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Got it") }
+        },
+    )
 }
 
 /** Multi-line editor for a text section (one ingredient/step per line). */
@@ -539,7 +580,7 @@ private fun TextLines(
         lines.forEachIndexed { index, line ->
             if (line.isBlank()) return@forEachIndexed
             if (supportHeadings && line.trimStart().startsWith("--")) {
-                IngredientHeading(text = line.trimStart().removePrefix("--").trim())
+                SectionHeading(text = line.trimStart().removePrefix("--").trim())
                 return@forEachIndexed
             }
             val isStruck = index in struck
@@ -562,12 +603,12 @@ private fun TextLines(
 }
 
 /**
- * A heading line within the ingredient list (a line prefixed with `--`).
- * Rendered with breathing room above it and a subtle filled background so it
- * visually groups the ingredients that follow.
+ * A heading line within an Ingredients or Instructions list (a line prefixed
+ * with `--`). Rendered with breathing room above it and a subtle filled
+ * background so it visually groups the lines that follow.
  */
 @Composable
-private fun IngredientHeading(text: String) {
+private fun SectionHeading(text: String) {
     Text(
         text = text,
         style = MaterialTheme.typography.titleSmall,

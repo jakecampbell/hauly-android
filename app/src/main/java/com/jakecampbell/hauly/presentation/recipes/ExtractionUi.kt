@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -57,6 +58,14 @@ sealed interface ClipPreview {
 
     /** Clipboard text ready to submit for extraction. */
     data class Ready(val text: String) : ClipPreview
+
+    /**
+     * The clipboard holds a single URL. Submitted exactly like [Ready] (the URL
+     * goes in the request's `content` field), but the backend fetches and parses
+     * the page behind it. [display] is the human-friendly first part of the URL
+     * (its host) shown in place of the raw-text peek.
+     */
+    data class ReadyUrl(val url: String, val display: String) : ClipPreview
 }
 
 /**
@@ -111,14 +120,20 @@ fun ClipboardPreviewCard(
     onSubmit: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Both Ready and ReadyUrl submit their text; the other states are inert.
+    val submitText = when (preview) {
+        is ClipPreview.Ready -> preview.text
+        is ClipPreview.ReadyUrl -> preview.url
+        else -> null
+    }
     Surface(
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shadowElevation = 6.dp,
         modifier = modifier
             .then(
-                if (preview is ClipPreview.Ready) {
-                    Modifier.clickable { onSubmit(preview.text) }
+                if (submitText != null) {
+                    Modifier.clickable { onSubmit(submitText) }
                 } else {
                     Modifier
                 }
@@ -156,6 +171,31 @@ fun ClipboardPreviewCard(
                         "%,d characters".format(preview.text.length),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                is ClipPreview.ReadyUrl -> {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Image(
+                            painter = painterResource(R.drawable.ai_sparkle),
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            "Recipe from clipboard URL",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    Text(
+                        preview.display,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
 
@@ -238,7 +278,11 @@ fun ExtractionRow(
     onOpen: () -> Unit,
     onRetry: () -> Unit,
     onDismiss: () -> Unit,
+    onUrlHelp: () -> Unit,
 ) {
+    // A URL parse is unreliable; when one fails we offer the manual copy-the-page
+    // help, so a terminal failure of a URL source shows a help affordance (R8.16).
+    val isUrlSource = clipboardUrlHost(extraction.sourceText.trim()) != null
     when (extraction.status) {
         ExtractionStatus.SUBMITTING, ExtractionStatus.PENDING, ExtractionStatus.PROCESSING -> {
             val pulse by rememberInfiniteTransition(label = "extraction-pulse").animateFloat(
@@ -258,17 +302,25 @@ fun ExtractionRow(
                         .size(18.dp)
                         .alpha(pulse),
                 )
-                Text(
-                    // A cold-started backend can hold the submit POST for tens
-                    // of seconds, so say what's actually happening.
-                    if (extraction.status == ExtractionStatus.SUBMITTING) {
-                        "Sending recipe…"
-                    } else {
-                        "Recipe magic happening…"
-                    },
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.weight(1f),
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        // A cold-started backend can hold the submit POST for tens
+                        // of seconds, so say what's actually happening.
+                        if (extraction.status == ExtractionStatus.SUBMITTING) {
+                            "Sending recipe…"
+                        } else {
+                            "Recipe magic happening…"
+                        },
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    // Parsing (a page URL especially) can take a couple of
+                    // minutes on the backend — reassure the user it's working.
+                    Text(
+                        "This can take a couple of minutes — hang tight.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 IconButton(onClick = onDismiss) {
                     Icon(Icons.Filled.Close, contentDescription = "Cancel extraction")
                 }
@@ -319,6 +371,15 @@ fun ExtractionRow(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+            if (isUrlSource) {
+                IconButton(onClick = onUrlHelp) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.HelpOutline,
+                        contentDescription = "How to copy the page yourself",
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
             if (extraction.status == ExtractionStatus.FAILED) {
                 TextButton(onClick = onRetry) { Text("Retry") }
             }

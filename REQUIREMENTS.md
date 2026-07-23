@@ -593,11 +593,14 @@ to it, and the Notion PAT must never be sent to it.
   ingredients, instructions, planned). Rich_text is chunked to respect Notion's 2000-char
   per-object limit. The **Ingredients** view renders like **ruled paper**: each non-blank line
   is shown with a full-width divider beneath it; an empty section shows a muted placeholder. A
-  line whose text begins with `--` is a **heading** within the ingredient list: the `--` marker
+  line whose text begins with `--` is a **heading** within the list: the `--` marker
   is stripped and the line is rendered with extra whitespace above it and a slight background
-  highlight to group the ingredients beneath it. Headings are display-only — they are not
-  tappable and carry no per-line strike (R8.8). This convention applies to the **Ingredients**
-  list only, not Instructions.
+  highlight to group the lines beneath it. Headings are display-only — they are not
+  tappable and carry no per-line strike (R8.8). This `--` heading convention applies to **both
+  the Ingredients and the Instructions** lists (the ruled-paper divider styling remains
+  Ingredients-only). Each of those two section headers carries a **help (?) icon** beside its
+  edit pencil that opens a short dialog explaining the `--` sub-heading convention, so the
+  feature is discoverable.
 - **R8.8** **Per-line strike (focus) tracking.** In view mode every non-blank Ingredients/
   Instructions line is tappable; tapping crosses it out and dims it (~60% alpha), tapping again
   restores it, to help the cook keep their place. This is **local-only** (R4.7) — never synced
@@ -655,7 +658,15 @@ to it, and the Notion PAT must never be sent to it.
   above the button showing the current clipboard text — first few lines ellipsized plus a
   character count — with an invisible
   full-screen scrim behind it so tapping anywhere else dismisses it. Only the **current**
-  clipboard item is available (Android exposes no clipboard history). Tapping the card
+  clipboard item is available (Android exposes no clipboard history).
+  **URL clipboard.** If the clipboard holds a **single web URL** (a bare link — the trimmed
+  text is a full `Patterns.WEB_URL` match with no internal whitespace, so a multi-line recipe
+  blob never qualifies), the card instead titles itself **"Recipe from clipboard URL"** and
+  shows the URL's **first part** (its host, less a leading `www.`) in place of the text peek
+  and character count — the backend also parses a recipe out of the web page behind a URL. The
+  submission is otherwise **identical**: the URL string is sent as the request `content`
+  (R2.10) through the same pasted-source (`extract`) route as clipboard text, so it shares all
+  the downstream flow (status row, Retry). Tapping the card
   submits the text to the extraction backend (R2.10) and dismisses the card, and a
   `SUBMITTING` status row (R8.16) appears **immediately** — before the POST completes.
   Guard rails: with no beta token stored (R6.6) the card instead shows a
@@ -679,7 +690,9 @@ to it, and the Notion PAT must never be sent to it.
   While in flight it shows a small spinner plus a pulsing ai-sparkle glyph over a **pulsing**
   background (container color alpha animating ~0.4↔1.0, ~800 ms per leg) — labeled "Sending
   recipe…" while `SUBMITTING` (the POST can be held by a cold-started backend) and "Recipe
-  magic happening…" once `PENDING`/`PROCESSING` — with a ✕ to **cancel**: the row is deleted locally and any late
+  magic happening…" once `PENDING`/`PROCESSING`, each over a small **patience caption** ("This
+  can take a couple of minutes — hang tight.") because parsing — a page URL (R8.15) especially —
+  can take up to ~2 minutes on the backend — with a ✕ to **cancel**: the row is deleted locally and any late
   result for it is dropped (R5.13); the backend job simply finishes unobserved. The row body
   itself is not tappable while in flight. On `COMPLETED` the pulse stops (steady `primaryContainer`) and the row shows
   the extracted title (fallback "Recipe ready") with a "Tap to review" caption — it **stays
@@ -688,7 +701,15 @@ to it, and the Notion PAT must never be sent to it.
   (deletes the failed row and resubmits its `source_text` as a new extraction) and ✕
   (dismiss). On `NO_RECIPE` it renders like `FAILED` (error colors, the service's
   explanation, ✕) but **without Retry** — the service already judged the text not to be a
-  recipe, so resubmitting it can't help. Multiple extractions may run at once, one row each,
+  recipe, so resubmitting it can't help.
+  **URL-failure help.** Web-page parsing (R8.15) is unreliable, so a **terminal failure**
+  (`FAILED` *or* `NO_RECIPE`) of a **URL source** additionally shows a **help (?) icon** on the
+  row, beside Retry/✕. Whether a source was a URL is derived from the row's stored `source_text`
+  (a single bare link — the same detection as the R8.15 preview), so no extra column is needed.
+  Tapping the help icon opens a **full-view help dialog** ("Copy the recipe yourself") that
+  walks the user through the manual fallback: open the page in a browser, select and copy all
+  its text, then long-press + and use "Grab recipe from clipboard" (R8.15) on the copied text.
+  Multiple extractions may run at once, one row each,
   oldest first. Extraction polling must not flicker the global network bar (R2.9).
 - **R8.17** **Review & create.** Tapping a completed extraction row opens the **R8.10 create
   dialog prefilled** with the extracted title/ingredients/instructions for the user to review

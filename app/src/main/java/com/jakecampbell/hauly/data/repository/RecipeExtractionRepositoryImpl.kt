@@ -238,6 +238,7 @@ class RecipeExtractionRepositoryImpl @Inject constructor(
         ingredients = ingredients,
         instructions = instructions,
         error = error,
+        sourceText = sourceText,
         createdAt = createdAt,
     )
 

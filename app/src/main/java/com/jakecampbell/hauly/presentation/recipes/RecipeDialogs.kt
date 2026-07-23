@@ -166,6 +166,82 @@ fun RecipeFreeTextDialog(
     }
 }
 
+/**
+ * Full-view help shown when a URL extraction fails (R8.16). Web-page parsing is
+ * unreliable, so this walks the user through the manual fallback: open the page,
+ * copy all its text, and use "Grab recipe from clipboard" instead.
+ */
+@Composable
+fun UrlExtractionHelpDialog(onDismiss: () -> Unit) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        // Full-view rather than the platform's narrow width — this is a walkthrough.
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(20.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                Text(
+                    text = "Copy the recipe yourself",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(bottom = 12.dp),
+                )
+                Text(
+                    text = "Reading a recipe straight from a web address doesn't always work — " +
+                        "some pages hide their recipe behind ads, logins, or scripts the reader " +
+                        "can't get past. When that happens you can still get the recipe in a few steps:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 16.dp),
+                )
+                HelpStep(1, "Open the recipe page in your browser.")
+                HelpStep(2, "Select all of the page text (long-press the text, then “Select all”) and copy it.")
+                HelpStep(3, "Come back to Hauly and long-press the + button.")
+                HelpStep(4, "Tap “Grab recipe from clipboard” — Hauly reads the recipe from the copied text.")
+                Spacer(Modifier.weight(1f))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = onDismiss) { Text("Got it") }
+                }
+            }
+        }
+    }
+}
+
+/** One numbered step in [UrlExtractionHelpDialog]. */
+@Composable
+private fun HelpStep(number: Int, text: String) {
+    Row(
+        modifier = Modifier.padding(bottom = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(
+            text = "$number.",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyLarge,
+        )
+    }
+}
+
 /** Edit (or clear) the recipe's source link. */
 @Composable
 fun RecipeUrlDialog(

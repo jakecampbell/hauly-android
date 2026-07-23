@@ -1,5 +1,7 @@
 package com.jakecampbell.hauly.presentation.recipes
 
+import android.net.Uri
+import android.util.Patterns
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -79,6 +81,8 @@ fun RecipesScreen(
     var showFreeText by remember { mutableStateOf(false) }
     /** Completed extraction being reviewed in the (prefilled) create dialog. */
     var prefillExtraction by remember { mutableStateOf<RecipeExtraction?>(null) }
+    /** Whether the "copy the page yourself" help for a failed URL parse is open. */
+    var showUrlHelp by remember { mutableStateOf(false) }
     val clipboard = LocalClipboard.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -166,6 +170,7 @@ fun RecipesScreen(
                 onOpen = { prefillExtraction = extraction },
                 onRetry = { viewModel.retryExtraction(extraction.id) },
                 onDismiss = { viewModel.dismissExtraction(extraction.id) },
+                onUrlHelp = { showUrlHelp = true },
             )
         }
 
@@ -244,7 +249,15 @@ fun RecipesScreen(
                     clipPreview = when {
                         !state.hasBackendToken -> ClipPreview.NoToken
                         text.isBlank() -> ClipPreview.Empty
-                        else -> ClipPreview.Ready(text)
+                        // The backend now also parses a recipe out of a web page,
+                        // so a bare URL is submitted as-is (same request) but
+                        // previewed differently (R8.15).
+                        else -> {
+                            val trimmed = text.trim()
+                            val host = clipboardUrlHost(trimmed)
+                            if (host != null) ClipPreview.ReadyUrl(trimmed, host)
+                            else ClipPreview.Ready(text)
+                        }
                     }
                 }
             },
@@ -282,6 +295,10 @@ fun RecipesScreen(
         }
     }
 
+    if (showUrlHelp) {
+        UrlExtractionHelpDialog(onDismiss = { showUrlHelp = false })
+    }
+
     if (showFreeText) {
         RecipeFreeTextDialog(
             onDismiss = { showFreeText = false },
@@ -308,6 +325,23 @@ fun RecipesScreen(
             },
         )
     }
+}
+
+/**
+ * If [text] is a single web URL, returns its first part (host, minus a leading
+ * "www.") for the clipboard preview; otherwise null. A recipe blob of pasted
+ * text fails the full-match (it carries whitespace/newlines), so only a bare
+ * link is treated as a URL to fetch.
+ */
+internal fun clipboardUrlHost(text: String): String? {
+    if (text.any { it.isWhitespace() }) return null
+    if (!Patterns.WEB_URL.matcher(text).matches()) return null
+    val host = runCatching { Uri.parse(text).host }.getOrNull()
+        ?.removePrefix("www.")
+        ?.takeIf { it.isNotBlank() }
+    // A scheme-less link (e.g. "example.com/recipe") has no parsed host, so fall
+    // back to the leading path segment.
+    return host ?: text.substringBefore("/").ifBlank { text }
 }
 
 /**

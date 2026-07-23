@@ -38,5 +38,11 @@ data class RecipeExtraction(
     val instructions: String,
     /** Failure reason; null unless FAILED. */
     val error: String?,
+    /**
+     * The originally submitted text, kept so the UI can distinguish a URL
+     * extraction (a bare link) from pasted source text — a failed URL parse
+     * offers the manual copy-the-page help (R8.16).
+     */
+    val sourceText: String,
     val createdAt: Long,
 )
