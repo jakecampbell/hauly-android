@@ -34,5 +34,22 @@ class CookModeViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
+    /**
+     * True while any timer is running or finished-but-unreset — i.e. worth showing
+     * in the live foreground notification (R8.21). Used only to *start* the service;
+     * it observes the controller itself and self-stops when idle.
+     */
+    val anyTimerActive: StateFlow<Boolean> = controller.sessions
+        .map { sessions ->
+            sessions.values.any { session ->
+                val timers = listOf(session.overall) + session.steps.values
+                timers.any { it.isRunning || it.finished }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     val completions: SharedFlow<TimerKey> = controller.completions
+
+    /** Fires when the user closes cook mode — drives the "enjoy" celebration (R8.22). */
+    val cookingFinished: SharedFlow<Unit> = controller.cookingFinished
 }

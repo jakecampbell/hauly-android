@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -146,7 +147,11 @@ fun RecipeDetailScreen(
         viewModel.closed.collect { onBack() }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    // imePadding shrinks the content above the keyboard so the scrolling list's
+    // viewport ends there — that lets an inline section editor's built-in
+    // bring-into-view scroll its lower lines clear of the keyboard rather than
+    // being covered by it.
+    Column(modifier = Modifier.fillMaxSize().imePadding()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()

@@ -19,7 +19,7 @@ private val InkRaised = Color(0xFF1A1E20)
 private val InkHigh = Color(0xFF24292C)
 private val Mist = Color(0xFFE4E7E8)
 private val MistDim = Color(0xFF9AA4A8)
-private val HaulyBlue = Color(0xFF06AFFF)
+val HaulyBlue = Color(0xFF06AFFF)
 private val HaulyBlueDeep = Color(0xFF0E3A52)
 private val Ember = Color(0xFFF28B82)
 

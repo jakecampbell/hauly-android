@@ -92,7 +92,7 @@ fun SettingsScreen(
         )
 
         Text(
-            "Version ${BuildConfig.VERSION_NAME}",
+            "Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

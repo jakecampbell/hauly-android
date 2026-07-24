@@ -8,6 +8,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -54,7 +55,8 @@ import kotlinx.coroutines.delay
  * inline fields, no dialog; setting a positive value makes it a countdown, 0
  * leaves it a stopwatch. While running only Pause is enabled — the fields and
  * reset lock, so an accidental tap can't wipe a running timer. A finished
- * countdown flashes magenta until it is reset.
+ * countdown flashes magenta until it is reset — while it does, a tap **anywhere
+ * on the row** dismisses the alarm, not just the reset icon.
  */
 @Composable
 fun CookTimerRow(
@@ -80,6 +82,9 @@ fun CookTimerRow(
         modifier = modifier
             .fillMaxWidth()
             .background(rowColor, RoundedCornerShape(8.dp))
+            // While the alarm is sounding, tapping anywhere on the row dismisses
+            // it — the reset icon is just one of many targets.
+            .then(if (timer.finished) Modifier.clickable(onClick = onReset) else Modifier)
             .padding(horizontal = 4.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -253,7 +258,7 @@ private fun flashAlpha(active: Boolean): Float {
 }
 
 /** MM:SS, where minutes can exceed 59 (e.g. a 90-minute braise shows 90:00). */
-private fun formatTimer(ms: Long): String {
+internal fun formatTimer(ms: Long): String {
     val totalSeconds = ms / 1000
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60

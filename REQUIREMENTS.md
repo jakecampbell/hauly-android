@@ -281,8 +281,9 @@ to it, and the Notion PAT must never be sent to it.
 - **R6.4** The Settings tab shows both database IDs, the last-synced time, and a "Sync now"
   button (with a snackbar confirming the sync is scheduled). Changing token/databases is done
   by clearing app data and re-onboarding — no in-app editing required.
-- **R6.5** The Settings tab shows the app's semantic version (e.g. "Version 1.0.0"), read
-  from the build's `versionName` via `BuildConfig` — not a separately maintained value.
+- **R6.5** The Settings tab shows the app's semantic version followed by the build number in
+  parentheses (e.g. "Version 1.0.0 (12)"), read from the build's `versionName` and `versionCode`
+  via `BuildConfig` — not separately maintained values.
 - **R6.6** **Hauly beta token (optional).** Onboarding additionally offers an optional
   "Hauly beta token" field (password-masked like the PAT); leaving it blank completes setup
   normally and simply hides the clipboard-extraction flow (R8.15). Unlike the Notion values
@@ -758,8 +759,28 @@ to it, and the Notion PAT must never be sent to it.
   auto-pauses at 0 and fires an alert: the default notification **tone plays once**, and a
   **continuous vibration** plus a **magenta flash** on the row run **until the timer is reset**
   (the vibration loops while *any* finished timer is unacknowledged, and stops once all are
-  reset). Completion is detected by the controller (a monitor loop) so the alert fires even when
+  reset). While a timer is in this finished/alarming state, **tapping anywhere on its row**
+  dismisses the alarm (equivalent to pressing reset) — the reset icon is only one of the tap
+  targets. Completion is detected by the controller (a monitor loop) so the alert fires even when
   the timer's UI is off-screen.
+- **R8.21** **Live timer notification.** While **any timer is active** (running, or finished but
+  not yet reset), the app posts a single **ongoing** notification to the system notification list
+  via a **foreground service** (so it persists off-screen and its background can be colorised).
+  Its background is the **cook magenta** accent. The content shows the **recipe name** and a list
+  of that recipe's active timers with their live values (`Overall 12:34`, `Step 3 00:45`, a
+  finished timer shown as done), **updating in real time** (~1 Hz). If more than one recipe is
+  cooking at once, the title summarises the count and each recipe heads its own block. The
+  notification channel is **silent/low-importance** (the completion tone and vibration of R8.20 are
+  the only sounds); tapping it opens the app. The service **starts** when a timer becomes active and
+  **self-stops** (clearing the notification) once none remain. On Android 13+ the app requests the
+  `POST_NOTIFICATIONS` permission; if denied, timers still run and only the notification is hidden.
+- **R8.22** **"Enjoy" send-off.** Closing cook mode (the frying-pan toggle turning cooking **off**)
+  plays a brief, one-shot **centre-screen** celebration: a **magenta frying pan** winds up and
+  **flips** the word **"enjoy"** (also magenta) up into the air — the word rides in the pan through
+  the wind-up, is flung up on the flip, then arcs up, holds, and fades (~1.6s). A spray of small
+  **hauly-blue droplets** is flicked up off the pan on the flip, rising and fading. It is purely
+  visual, hosted app-root so it centres on the whole screen regardless of the current page, and
+  never intercepts touches. Entering cook mode does not trigger it.
 
 ---
 

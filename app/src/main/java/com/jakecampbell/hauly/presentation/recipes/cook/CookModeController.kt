@@ -88,14 +88,21 @@ class CookModeController @Inject constructor() {
     private val _completions = MutableSharedFlow<TimerKey>(extraBufferCapacity = 16)
     val completions: SharedFlow<TimerKey> = _completions.asSharedFlow()
 
+    /** Emits when the user leaves cook mode for a recipe — drives the "enjoy" send-off. */
+    private val _cookingFinished = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
+    val cookingFinished: SharedFlow<Unit> = _cookingFinished.asSharedFlow()
+
     private var monitor: Job? = null
 
     /** Toggle cook mode for a recipe on/off. Turning it off drops all its timers. */
     fun toggle(recipeId: String, recipeName: String) {
+        val wasCooking = _sessions.value.containsKey(recipeId)
         _sessions.update { current ->
             if (current.containsKey(recipeId)) current - recipeId
             else current + (recipeId to CookSession(recipeId, recipeName))
         }
+        // Leaving cook mode is a finished cook — celebrate it (R8.22).
+        if (wasCooking) _cookingFinished.tryEmit(Unit)
         ensureMonitor()
     }
 

@@ -1,6 +1,12 @@
 package com.jakecampbell.hauly.presentation.navigation
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -27,6 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -47,7 +54,9 @@ import androidx.navigation.compose.rememberNavController
 import com.jakecampbell.hauly.presentation.onboarding.OnboardingScreen
 import com.jakecampbell.hauly.presentation.recipes.RecipeDetailScreen
 import com.jakecampbell.hauly.presentation.recipes.RecipesScreen
+import com.jakecampbell.hauly.presentation.recipes.cook.CookFinishCelebration
 import com.jakecampbell.hauly.presentation.recipes.cook.CookModeViewModel
+import com.jakecampbell.hauly.presentation.recipes.cook.CookTimerService
 import com.jakecampbell.hauly.presentation.recipes.cook.playTimerSound
 import com.jakecampbell.hauly.presentation.recipes.cook.startTimerVibration
 import com.jakecampbell.hauly.presentation.recipes.cook.stopTimerVibration
@@ -108,6 +117,32 @@ fun HaulyNavHost(startConfigured: Boolean, networkBusy: Boolean) {
     DisposableEffect(anyFinished) {
         if (anyFinished) startTimerVibration(appContext)
         onDispose { stopTimerVibration(appContext) }
+    }
+
+    // A live foreground notification tracks all running timers (R8.21). We only need
+    // to *start* the service when a timer becomes active — it observes the timers and
+    // stops itself once none remain. On Android 13+ it needs the notification permission.
+    val anyTimerActive by cookViewModel.anyTimerActive.collectAsStateWithLifecycle()
+    val notificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { /* granted or not, the timers run regardless; the notification just stays hidden if denied. */ }
+    LaunchedEffect(anyTimerActive) {
+        if (anyTimerActive) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(appContext, Manifest.permission.POST_NOTIFICATIONS) !=
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            CookTimerService.start(appContext)
+        }
+    }
+
+    // Closing cook mode plays a centre-screen "enjoy" send-off (R8.22). Bumping the
+    // trigger on each finish restarts the one-shot animation, hosted below.
+    var enjoyTrigger by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        cookViewModel.cookingFinished.collect { enjoyTrigger++ }
     }
 
     // Swipe position for the two list tabs, hoisted so the bottom bar (kept in
@@ -224,6 +259,9 @@ fun HaulyNavHost(startConfigured: Boolean, networkBusy: Boolean) {
                     .height(2.dp),
             )
         }
+
+        // Sits above everything so the send-off is centred on the whole screen.
+        CookFinishCelebration(trigger = enjoyTrigger)
     }
 }
 
